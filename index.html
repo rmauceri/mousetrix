@@ -1,0 +1,3119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Mousetris</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #1a120b;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+#gameCanvas {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+'use strict';
+
+// ============================================================
+//  CONSTANTS
+// ============================================================
+const COLS = 10;
+const ROWS = 20;
+const CELL = 28;                       // base cell size in px (scaled to fit)
+const PREVIEW_CELL = 16;
+const LOCK_DELAY = 500;                // ms before piece locks after landing
+const DAS_INITIAL = 170;               // ms before auto-repeat starts
+const DAS_REPEAT = 50;                 // ms between auto-repeat moves
+const LINES_PER_LEVEL = 10;
+const GRAVITY_TABLE = [                // ms per row drop, by level
+  1000, 793, 618, 473, 355, 262, 190, 135, 94, 64,
+  43, 28, 18, 12, 8, 5, 3, 2, 1, 1
+];
+
+const COLORS = {
+  bg:       '#1a120b',
+  frame:    '#3d2b1a',
+  frameLt:  '#5a4030',
+  grid:     'rgba(245,214,138,0.12)',
+  gridBg:   '#0d0906',
+  text:     '#f5d68a',
+  textDim:  '#a89070',
+  accent:   '#e8a840',
+  danger:   '#e05050',
+  ghost:    'rgba(245,214,138,0.18)',
+  white:    '#f5f0e8',
+};
+
+// ============================================================
+//  THEME SYSTEM
+// ============================================================
+const THEMES = {
+  cozy: {
+    name: 'Cozy Burrow',
+    bg: '#1a120b',
+    frameFill: '#3d2b1a',
+    gridBg: '#0d0906',
+    gridLine: 'rgba(245,214,138,0.10)',
+    palette: { ...COLORS },
+    furColors: null,           // uses default piece fur colors
+    cellDeco: null,            // no extra decoration
+    music: null,               // default melody
+    rowClearFx: null,          // default scatter
+  },
+  // Future themes added here:
+  // garden: { name: 'Garden', bg: '#1a2e1a', ... },
+  // kitchen: { name: 'Kitchen', bg: '#2b2420', ... },
+};
+let currentTheme = THEMES.cozy;
+
+// ============================================================
+//  PIECE DEFINITIONS — SRS with pose metadata
+// ============================================================
+// Each piece: { cells: [rotation0, rotation1, rotation2, rotation3], color, fur, poseType }
+// cells[r] = array of [row, col] offsets from piece origin (top-left of bounding box)
+// poseType: 'stretch'|'curl'|'tada'|'tumble'|'spoon'|'peek'|'peekR'
+
+// ============================================================
+//  CHEESE FORAGING
+// ============================================================
+const CHEESE_SPAWN_INTERVAL = 3;       // spawn cheese every N piece locks
+const CHEESE_MAX = 5;                  // max cheese on board at once
+const CHEESE_DECAY_TIME = 30000;       // ms before cheese goes bad (30s)
+const CHEESE_MIN_ROW = 3;             // don't spawn in top 3 rows
+
+const CHEESE_TYPES = {
+  cheddar: { weight: 70, points: 75,  color: '#e8a840', holeColor: '#d49030' },
+  swiss:   { weight: 25, points: 150, color: '#f5d68a', holeColor: '#c8b870' },
+  golden:  { weight: 5,  points: 500, color: '#ffd700', holeColor: '#ddb700' },
+};
+
+// ============================================================
+//  MOUSE HOLE ENTRY
+// ============================================================
+const MOUSE_HOLES = [
+  { side: 'left',  row: 0, minLevel: 0 },
+  { side: 'right', row: 0, minLevel: 0 },
+  { side: 'left',  row: 1, minLevel: 0 },
+  { side: 'right', row: 1, minLevel: 0 },
+  { side: 'left',  row: 5, minLevel: 3 },
+  { side: 'right', row: 5, minLevel: 3 },
+  { side: 'left',  row: 10, minLevel: 6 },
+  { side: 'right', row: 10, minLevel: 6 },
+];
+const SCURRY_DURATION = 250;           // ms for piece to slide in from hole
+
+// ============================================================
+//  CAT PROWL
+// ============================================================
+const CAT_MIN_INTERVAL = 15000;        // min ms between cat appearances
+const CAT_MAX_INTERVAL = 25000;        // max ms between cat appearances
+const CAT_WARNING_TIME = 1500;         // ms of glowing-eyes warning
+const CAT_PROWL_TIME = 1200;           // ms for cross attack
+const CAT_POUNCE_TIME = 800;           // ms for pounce attack
+const CAT_LURK_TIME = 2500;            // ms for lurk attack
+const CAT_ROWS = 7;                    // cat threatens top N rows
+const CAT_BAT_FORCE = 3;              // columns the piece gets shoved
+const CAT_SWIPE_RANGE = 3;            // columns from cat center that trigger bat
+const CAT_ATTACKS = ['cross', 'pounce', 'lurk']; // attack pattern pool
+
+// ============================================================
+//  COLOR CLUSTERS
+// ============================================================
+const CLUSTER_MIN_SIZE = 6;            // min connected same-type cells to clear
+const CLUSTER_SHIMMER_TIME = 400;      // ms shimmer before clear
+const CLUSTER_CLEAR_TIME = 400;        // ms clear animation
+
+const PIECE_COLORS = {
+  I: '#6ec6e6',   // sky blue
+  O: '#f5d68a',   // warm yellow
+  T: '#b07ee8',   // purple
+  S: '#7bc67e',   // green
+  Z: '#e07070',   // coral red
+  L: '#e8a840',   // orange
+  J: '#5080d0',   // blue
+};
+
+// 2-3 distinct fur colors per piece type for multi-mouse compositions
+const PIECE_FURS = {
+  I: [
+    { body: '#c8c0b8', ear: '#b0a89e', belly: '#ddd8d0', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#8a7a6a', ear: '#7a6a5a', belly: '#a09080', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  O: [
+    { body: '#d4c4a8', ear: '#c0b090', belly: '#e8dcc8', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#a89078', ear: '#988068', belly: '#c0a890', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  T: [
+    { body: '#baaad0', ear: '#a898b8', belly: '#d0c8e0', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#f0e0c8', ear: '#e0d0b8', belly: '#fff0d8', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#706078', ear: '#605068', belly: '#887890', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  S: [
+    { body: '#e0d8c8', ear: '#d0c8b8', belly: '#f0e8d8', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#706858', ear: '#605848', belly: '#888070', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  Z: [
+    { body: '#b8b0a0', ear: '#a8a090', belly: '#d0c8b8', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#4a4248', ear: '#3a3238', belly: '#5e5660', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  L: [
+    { body: '#e8d8c0', ear: '#d8c8b0', belly: '#f8f0e0', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#9a8a70', ear: '#8a7a60', belly: '#b0a088', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+  J: [
+    { body: '#808088', ear: '#707078', belly: '#989898', eye: '#1a1a1a', nose: '#e88090' },
+    { body: '#c8c0b0', ear: '#b8b0a0', belly: '#e0d8c8', eye: '#1a1a1a', nose: '#e88090' },
+  ],
+};
+
+const PIECES = {
+  I: {
+    cells: [
+      [[1,0],[1,1],[1,2],[1,3]],
+      [[0,2],[1,2],[2,2],[3,2]],
+      [[2,0],[2,1],[2,2],[2,3]],
+      [[0,1],[1,1],[2,1],[3,1]],
+    ],
+    size: 4,
+  },
+  O: {
+    cells: [
+      [[0,0],[0,1],[1,0],[1,1]],
+      [[0,0],[0,1],[1,0],[1,1]],
+      [[0,0],[0,1],[1,0],[1,1]],
+      [[0,0],[0,1],[1,0],[1,1]],
+    ],
+    size: 2,
+  },
+  T: {
+    cells: [
+      [[0,1],[1,0],[1,1],[1,2]],
+      [[0,1],[1,1],[1,2],[2,1]],
+      [[1,0],[1,1],[1,2],[2,1]],
+      [[0,1],[1,0],[1,1],[2,1]],
+    ],
+    size: 3,
+  },
+  S: {
+    cells: [
+      [[0,1],[0,2],[1,0],[1,1]],
+      [[0,0],[1,0],[1,1],[2,1]],
+      [[1,1],[1,2],[2,0],[2,1]],
+      [[0,0],[1,0],[1,1],[2,1]],
+    ],
+    size: 3,
+  },
+  Z: {
+    cells: [
+      [[0,0],[0,1],[1,1],[1,2]],
+      [[0,2],[1,1],[1,2],[2,1]],
+      [[1,0],[1,1],[2,1],[2,2]],
+      [[0,1],[1,0],[1,1],[2,0]],
+    ],
+    size: 3,
+  },
+  L: {
+    cells: [
+      [[0,2],[1,0],[1,1],[1,2]],
+      [[0,0],[0,1],[1,1],[2,1]],
+      [[1,0],[1,1],[1,2],[2,0]],
+      [[0,0],[1,0],[2,0],[2,1]],
+    ],
+    size: 3,
+  },
+  J: {
+    cells: [
+      [[0,0],[1,0],[1,1],[1,2]],
+      [[0,1],[0,2],[1,1],[2,1]],
+      [[1,0],[1,1],[1,2],[2,2]],
+      [[0,1],[1,1],[2,0],[2,1]],
+    ],
+    size: 3,
+  },
+};
+
+// SRS wall kick data
+const WALL_KICKS_NORMAL = [
+  // 0->R, R->2, 2->L, L->0  (clockwise)
+  [[ 0, 0],[-1, 0],[-1, 1],[ 0,-2],[-1,-2]],
+  [[ 0, 0],[ 1, 0],[ 1,-1],[ 0, 2],[ 1, 2]],
+  [[ 0, 0],[ 1, 0],[ 1, 1],[ 0,-2],[ 1,-2]],
+  [[ 0, 0],[-1, 0],[-1,-1],[ 0, 2],[-1, 2]],
+];
+const WALL_KICKS_I = [
+  [[ 0, 0],[-2, 0],[ 1, 0],[-2,-1],[ 1, 2]],
+  [[ 0, 0],[-1, 0],[ 2, 0],[-1, 2],[ 2,-1]],
+  [[ 0, 0],[ 2, 0],[-1, 0],[ 2, 1],[-1,-2]],
+  [[ 0, 0],[ 1, 0],[-2, 0],[ 1,-2],[-2, 1]],
+];
+
+const PIECE_NAMES = ['I','O','T','S','Z','L','J'];
+
+// ============================================================
+//  AUDIO ENGINE — Web Audio API procedural sounds
+// ============================================================
+let audioCtx = null;
+let masterGain = null;
+let sfxGain = null;
+let musicGain = null;
+let audioReady = false;
+let sfxEnabled = true;
+let musicEnabled = true;
+
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.6;
+    masterGain.connect(audioCtx.destination);
+    sfxGain = audioCtx.createGain();
+    sfxGain.gain.value = 0.7;
+    sfxGain.connect(masterGain);
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = 0.3;
+    musicGain.connect(masterGain);
+    audioReady = true;
+  } catch(e) { console.warn('Audio init failed', e); }
+}
+
+function playTone(freq, duration, type = 'sine', gain = 0.3, dest = sfxGain) {
+  if (!audioReady || !sfxEnabled) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  osc.connect(g);
+  g.connect(dest);
+  osc.start(t);
+  osc.stop(t + duration);
+}
+
+function playNoise(duration, gain = 0.1, dest = sfxGain) {
+  if (!audioReady || !sfxEnabled) return;
+  const t = audioCtx.currentTime;
+  const bufSize = audioCtx.sampleRate * duration;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  src.connect(g);
+  g.connect(dest);
+  src.start(t);
+  src.stop(t + duration);
+}
+
+// --- Sound effects ---
+function sfxMove() {
+  playTone(800, 0.04, 'sine', 0.15);
+  playTone(900, 0.04, 'sine', 0.12);
+}
+
+function sfxRotate() {
+  playTone(600, 0.06, 'sine', 0.2);
+  playTone(900, 0.06, 'sine', 0.15);
+}
+
+function sfxSoftDrop() {
+  playTone(400, 0.03, 'triangle', 0.1);
+}
+
+function sfxHardDrop() {
+  playNoise(0.08, 0.2);
+  playTone(200, 0.12, 'sine', 0.25);
+  setTimeout(() => playTone(500, 0.08, 'sine', 0.15), 60);
+}
+
+function sfxLock() {
+  playTone(300, 0.15, 'sine', 0.15);
+  playTone(250, 0.2, 'triangle', 0.1);
+}
+
+function sfxLineClear(count) {
+  const base = 500;
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      playTone(base + i * 200, 0.12, 'sine', 0.2);
+      playTone(base + i * 200 + 100, 0.1, 'triangle', 0.15);
+    }, i * 80);
+  }
+  if (count >= 4) {
+    // Tetris fanfare
+    setTimeout(() => {
+      playTone(800, 0.15, 'square', 0.12);
+      playTone(1000, 0.15, 'square', 0.1);
+      playTone(1200, 0.2, 'square', 0.12);
+    }, count * 80 + 50);
+  }
+}
+
+function sfxLevelUp() {
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((n, i) => setTimeout(() => playTone(n, 0.15, 'sine', 0.2), i * 100));
+}
+
+function sfxGameOver() {
+  const notes = [400, 350, 300, 200];
+  notes.forEach((n, i) => setTimeout(() => playTone(n, 0.25, 'triangle', 0.2), i * 200));
+}
+
+function sfxHold() {
+  playTone(600, 0.06, 'sine', 0.15);
+  playTone(400, 0.06, 'sine', 0.12);
+}
+
+function sfxDangerTick(intensity) {
+  // intensity 0-1
+  playTone(80 + intensity * 40, 0.08, 'sine', 0.1 + intensity * 0.1);
+}
+
+function sfxCheeseCollect(count) {
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      playTone(1200 + i * 200, 0.08, 'sine', 0.2);
+      playNoise(0.04, 0.08);
+    }, i * 60);
+  }
+}
+
+function sfxCheeseSpawn() {
+  playTone(1400, 0.06, 'sine', 0.1);
+  setTimeout(() => playTone(1800, 0.06, 'sine', 0.08), 40);
+}
+
+function sfxCheeseSpoil() {
+  playTone(150, 0.15, 'triangle', 0.12);
+  playTone(100, 0.2, 'triangle', 0.08);
+}
+
+function sfxScurry() {
+  for (let i = 0; i < 4; i++) {
+    setTimeout(() => playNoise(0.02, 0.06), i * 40);
+  }
+}
+
+function sfxCheeseScoop(count) {
+  // Dramatic crunch + rising sparkle
+  playNoise(0.06, 0.15);
+  playTone(600, 0.1, 'square', 0.15);
+  setTimeout(() => {
+    playTone(900, 0.1, 'sine', 0.2);
+    playTone(1100, 0.08, 'sine', 0.15);
+  }, 50);
+  setTimeout(() => playTone(1400, 0.12, 'sine', 0.18), 120);
+  if (count >= 2) {
+    setTimeout(() => {
+      playTone(1600, 0.15, 'sine', 0.2);
+      playTone(2000, 0.1, 'sine', 0.12);
+    }, 200);
+  }
+}
+
+function sfxCatHiss() {
+  // Low rumbling hiss
+  playNoise(0.4, 0.12);
+  playTone(120, 0.3, 'sawtooth', 0.08);
+  playTone(90, 0.4, 'sawtooth', 0.06);
+}
+
+function sfxCatSwipe() {
+  // Quick aggressive swipe
+  playNoise(0.08, 0.2);
+  playTone(200, 0.06, 'sawtooth', 0.2);
+  setTimeout(() => {
+    playTone(150, 0.1, 'sawtooth', 0.15);
+    playNoise(0.06, 0.15);
+  }, 60);
+}
+
+function sfxCatPounce() {
+  // Heavy landing thud + growl
+  playNoise(0.15, 0.25);
+  playTone(60, 0.2, 'sawtooth', 0.15);
+  playTone(80, 0.15, 'square', 0.1);
+  setTimeout(() => playTone(50, 0.3, 'sawtooth', 0.08), 100);
+}
+
+function sfxCatGrowl() {
+  // Low threatening rumble for lurk
+  playTone(70, 0.6, 'sawtooth', 0.06);
+  playTone(55, 0.8, 'sawtooth', 0.04);
+  playNoise(0.6, 0.05);
+}
+
+function sfxClusterClear(size, cascade) {
+  const base = 600 + cascade * 150;
+  for (let i = 0; i < Math.min(size, 6); i++) {
+    setTimeout(() => {
+      playTone(base + i * 80, 0.1, 'sine', 0.18);
+    }, i * 50);
+  }
+  if (cascade > 0) {
+    setTimeout(() => {
+      playTone(base + 400, 0.15, 'sine', 0.2);
+      playTone(base + 600, 0.12, 'triangle', 0.15);
+    }, size * 50);
+  }
+}
+
+// --- Background music ---
+let musicInterval = null;
+const MELODY_COZY = [
+  392, 440, 494, 523, 494, 440, 392, 330,
+  349, 392, 440, 494, 440, 392, 349, 330,
+  294, 330, 349, 392, 440, 392, 349, 330,
+  294, 330, 392, 440, 523, 494, 440, 392,
+];
+let melodyIndex = 0;
+
+function startMusic() {
+  if (!audioReady || !musicEnabled) return;
+  stopMusic();
+  melodyIndex = 0;
+  const bpm = 100 + (game ? game.level * 5 : 0);
+  const interval = 60000 / bpm / 2;
+  musicInterval = setInterval(() => {
+    if (!musicEnabled || !audioReady) { stopMusic(); return; }
+    const freq = MELODY_COZY[melodyIndex % MELODY_COZY.length];
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(g);
+    g.connect(musicGain);
+    osc.start(t);
+    osc.stop(t + 0.35);
+    melodyIndex++;
+  }, interval);
+}
+
+function stopMusic() {
+  if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+}
+
+// ============================================================
+//  GAME STATE
+// ============================================================
+let game = null;
+
+function newGame() {
+  game = {
+    grid: Array.from({length: ROWS}, () => Array(COLS).fill(null)),
+    bag: [],
+    current: null,      // { type, rot, row, col }
+    ghost: null,
+    next: null,
+    held: null,
+    holdUsed: false,
+    score: 0,
+    lines: 0,
+    level: 0,
+    gravityTimer: 0,
+    lockTimer: -1,
+    lockMoves: 0,
+    state: 'playing',   // 'playing' | 'clearing' | 'gameover' | 'paused'
+    clearTimer: 0,
+    clearRows: [],
+    clearPhase: 0,      // 0=startle, 1=scatter, 2=collapse
+    dasDir: 0,
+    dasTimer: 0,
+    dasActive: false,
+    softDrop: false,
+    dangerTimer: 0,
+    combo: 0,
+    highScores: loadHighScores(),
+    startTime: Date.now(),
+    // Cheese foraging
+    cheese: [],
+    cheeseHoard: 0,
+    pieceCount: 0,
+    cheeseEffects: [],     // floating text + particle bursts
+    hoardBump: 0,          // timer for HUD bump animation
+    screenFlash: 0,        // timer for screen flash on scoop
+    // Mouse hole entry
+    scurry: null,
+    nextHole: null,
+    currentHole: null,
+    // Cat prowl
+    cat: {
+      phase: 'idle',    // 'idle' | 'warning' | 'prowl' | 'cooldown'
+      timer: 0,
+      nextAppear: CAT_MIN_INTERVAL + Math.random() * (CAT_MAX_INTERVAL - CAT_MIN_INTERVAL),
+      direction: 1,     // 1 = left-to-right, -1 = right-to-left
+      batted: false,
+      attack: 'cross',  // 'cross' | 'pounce' | 'lurk'
+      prowlRow: 1.8,    // vertical position (row units)
+      targetCol: 5,     // target column for pounce/lurk
+      lurkSide: 1,      // which side lurk sits on
+      lurkSwipes: 0,    // swipe count during lurk
+    },
+    // Color clusters
+    clusterCells: [],       // cells being cluster-cleared [{row,col,type,color}]
+    clusterPhase: 0,        // 0=shimmer, 1=clear
+    clusterTimer: 0,
+    cascadeCount: 0,
+  };
+  fillBag();
+  game.next = spawnPiece();
+  nextPiece();
+}
+
+// 7-bag randomizer
+function fillBag() {
+  if (game.bag.length >= 7) return;
+  const set = [...PIECE_NAMES];
+  for (let i = set.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [set[i], set[j]] = [set[j], set[i]];
+  }
+  game.bag.push(...set);
+}
+
+function pickMouseHole() {
+  const level = game ? game.level : 0;
+  const active = MOUSE_HOLES.filter(h => h.minLevel <= level);
+  return active[Math.floor(Math.random() * active.length)];
+}
+
+function spawnPiece() {
+  if (game.bag.length < 7) fillBag();
+  const type = game.bag.shift();
+  const hole = game.nextHole || pickMouseHole();
+  const size = PIECES[type].size;
+  let col = hole.side === 'left' ? 0 : COLS - size;
+  let row = hole.row;
+  // Fallback to top-center if hole position is blocked
+  if (game.grid && !isValid(type, 0, row, col)) {
+    row = 0;
+    col = Math.floor((COLS - size) / 2);
+  }
+  game.nextHole = pickMouseHole();
+  return { type, rot: 0, row, col, hole };
+}
+
+function nextPiece() {
+  game.current = game.next;
+  game.next = spawnPiece();
+  game.holdUsed = false;
+  game.lockTimer = -1;
+  game.lockMoves = 0;
+  game.gravityTimer = 0;
+  // Set up scurry animation
+  const hole = game.current.hole;
+  if (hole) {
+    const size = PIECES[game.current.type].size;
+    game.scurry = {
+      timer: 0,
+      duration: SCURRY_DURATION,
+      startCol: hole.side === 'left' ? -size : COLS,
+      startRow: game.current.row,
+    };
+    game.currentHole = hole;
+    sfxScurry();
+  }
+  updateGhost();
+  // Check game over
+  if (!isValid(game.current.type, game.current.rot, game.current.row, game.current.col)) {
+    game.state = 'gameover';
+    game.scurry = null;
+    sfxGameOver();
+    stopMusic();
+    saveHighScore(game.score);
+  }
+}
+
+// ============================================================
+//  GRID ENGINE — collision, movement, rotation
+// ============================================================
+function getCells(type, rot) {
+  return PIECES[type].cells[rot];
+}
+
+function isValid(type, rot, row, col) {
+  const cells = getCells(type, rot);
+  for (const [cr, cc] of cells) {
+    const r = row + cr, c = col + cc;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    if (game.grid[r][c]) return false;
+  }
+  return true;
+}
+
+function tryMove(dr, dc) {
+  const p = game.current;
+  if (isValid(p.type, p.rot, p.row + dr, p.col + dc)) {
+    p.row += dr;
+    p.col += dc;
+    if (dr === 0) sfxMove();
+    if (dr > 0) checkCheeseScoop(); // scoop cheese while falling
+    updateGhost();
+    // Reset lock delay on successful move (up to 15 times)
+    if (game.lockTimer >= 0 && game.lockMoves < 15) {
+      game.lockTimer = 0;
+      game.lockMoves++;
+    }
+    return true;
+  }
+  return false;
+}
+
+function tryRotate(dir) { // dir: 1=CW, -1=CCW
+  const p = game.current;
+  const newRot = (p.rot + dir + 4) % 4;
+  const kicks = p.type === 'I' ? WALL_KICKS_I : WALL_KICKS_NORMAL;
+  const kickIdx = dir === 1 ? p.rot : newRot;
+  const kickSet = kicks[kickIdx];
+  const sign = dir === 1 ? 1 : -1;
+  for (const [kc, kr] of kickSet) {
+    const nc = p.col + kc * sign;
+    const nr = p.row - kr * sign;
+    if (isValid(p.type, newRot, nr, nc)) {
+      p.rot = newRot;
+      p.row = nr;
+      p.col = nc;
+      sfxRotate();
+      updateGhost();
+      if (game.lockTimer >= 0 && game.lockMoves < 15) {
+        game.lockTimer = 0;
+        game.lockMoves++;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+function hardDrop() {
+  const p = game.current;
+  let dropped = 0;
+  while (isValid(p.type, p.rot, p.row + 1, p.col)) {
+    p.row++;
+    dropped++;
+    checkCheeseScoop(); // scoop cheese at each row during hard drop
+  }
+  game.score += dropped * 2;
+  sfxHardDrop();
+  lockPiece();
+}
+
+function updateGhost() {
+  const p = game.current;
+  let gr = p.row;
+  while (isValid(p.type, p.rot, gr + 1, p.col)) gr++;
+  game.ghost = { type: p.type, rot: p.rot, row: gr, col: p.col };
+}
+
+function lockPiece() {
+  const p = game.current;
+  const cells = getCells(p.type, p.rot);
+  const furs = PIECE_FURS[p.type];
+  // Partition cells into mouse groups and assign fur per cell
+  const groups = partitionCells(cells);
+  const cellFurMap = new Map();
+  groups.forEach((group, gi) => {
+    const fur = furs[gi % furs.length];
+    for (const [cr, cc] of group) cellFurMap.set(`${cr},${cc}`, fur);
+  });
+  const placedCells = [];
+  for (const [cr, cc] of cells) {
+    const r = p.row + cr, c = p.col + cc;
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const fur = cellFurMap.get(`${cr},${cc}`) || furs[0];
+      game.grid[r][c] = { type: p.type, fur, color: PIECE_COLORS[p.type], pieceId: game.pieceCount };
+      placedCells.push([r, c]);
+    }
+  }
+  // Collect cheese adjacent to or under placed cells
+  collectCheese(placedCells);
+  // Cheese spawning
+  game.pieceCount++;
+  if (game.pieceCount % CHEESE_SPAWN_INTERVAL === 0) {
+    spawnCheese();
+    if (game.level >= 3 && Math.random() < 0.3) spawnCheese();
+  }
+  sfxLock();
+  checkLines();
+}
+
+// ============================================================
+//  CHEESE LOGIC
+// ============================================================
+function spawnCheese() {
+  if (game.cheese.length >= CHEESE_MAX) return;
+  const candidates = [];
+  for (let r = CHEESE_MIN_ROW; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!game.grid[r][c] && !game.cheese.find(ch => ch.row === r && ch.col === c)) {
+        candidates.push({ row: r, col: c });
+      }
+    }
+  }
+  if (candidates.length === 0) return;
+  // Pick type by weight
+  const roll = Math.random() * 100;
+  let type = 'cheddar';
+  let cumWeight = 0;
+  for (const [t, def] of Object.entries(CHEESE_TYPES)) {
+    cumWeight += def.weight;
+    if (roll < cumWeight) { type = t; break; }
+  }
+  const spot = candidates[Math.floor(Math.random() * candidates.length)];
+  game.cheese.push({ row: spot.row, col: spot.col, type, freshness: CHEESE_DECAY_TIME });
+  sfxCheeseSpawn();
+}
+
+// Scoop cheese when a falling piece passes through it
+function checkCheeseScoop() {
+  const p = game.current;
+  const cells = getCells(p.type, p.rot);
+  const scooped = [];
+  for (const [cr, cc] of cells) {
+    const r = p.row + cr, c = p.col + cc;
+    for (let i = game.cheese.length - 1; i >= 0; i--) {
+      const ch = game.cheese[i];
+      if (ch.row === r && ch.col === c && !scooped.includes(ch)) {
+        scooped.push(ch);
+      }
+    }
+  }
+  if (scooped.length > 0) {
+    let totalPoints = 0;
+    for (const ch of scooped) {
+      const idx = game.cheese.indexOf(ch);
+      if (idx >= 0) game.cheese.splice(idx, 1);
+      const pts = CHEESE_TYPES[ch.type].points;
+      totalPoints += pts;
+      spawnScoopEffects(ch);
+    }
+    if (scooped.length >= 2) totalPoints = Math.floor(totalPoints * 1.5);
+    totalPoints *= (game.level + 1);
+    game.score += totalPoints;
+    game.cheeseHoard += scooped.length;
+    game.hoardBump = 400;
+    game.screenFlash = 200;
+    sfxCheeseScoop(scooped.length);
+  }
+}
+
+function spawnScoopEffects(ch) {
+  const pts = CHEESE_TYPES[ch.type].points;
+  const color = CHEESE_TYPES[ch.type].color;
+  // Big floating text
+  game.cheeseEffects.push({
+    kind: 'text',
+    text: `+${pts} 🧀`,
+    col: ch.col, row: ch.row,
+    timer: 0, duration: 900,
+    color: color,
+    big: true,
+  });
+  // Ring burst
+  game.cheeseEffects.push({
+    kind: 'ring',
+    col: ch.col + 0.5, row: ch.row + 0.5,
+    timer: 0, duration: 500,
+    color: color,
+  });
+  // Many crumb particles (more than lock-collect)
+  for (let i = 0; i < 10; i++) {
+    const angle = (Math.PI * 2 / 10) * i + Math.random() * 0.4;
+    const speed = 2 + Math.random() * 2;
+    game.cheeseEffects.push({
+      kind: 'crumb',
+      col: ch.col + 0.5, row: ch.row + 0.5,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      timer: 0, duration: 600,
+      color: color,
+    });
+  }
+}
+
+function collectCheese(placedCells) {
+  const collected = [];
+  for (const [r, c] of placedCells) {
+    for (let i = game.cheese.length - 1; i >= 0; i--) {
+      const ch = game.cheese[i];
+      const dr = Math.abs(ch.row - r);
+      const dc = Math.abs(ch.col - c);
+      if ((dr === 0 && dc === 0) || (dr + dc === 1)) {
+        if (!collected.includes(ch)) collected.push(ch);
+      }
+    }
+  }
+  if (collected.length > 0) {
+    let totalPoints = 0;
+    for (const ch of collected) {
+      const idx = game.cheese.indexOf(ch);
+      if (idx >= 0) game.cheese.splice(idx, 1);
+      const pts = CHEESE_TYPES[ch.type].points;
+      totalPoints += pts;
+      // Floating score text
+      game.cheeseEffects.push({
+        kind: 'text',
+        text: `+${pts}`,
+        col: ch.col, row: ch.row,
+        timer: 0, duration: 700,
+        color: CHEESE_TYPES[ch.type].color,
+      });
+      // Crumb particles
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI * 2 / 6) * i + Math.random() * 0.5;
+        game.cheeseEffects.push({
+          kind: 'crumb',
+          col: ch.col + 0.5, row: ch.row + 0.5,
+          vx: Math.cos(angle) * (1.5 + Math.random()),
+          vy: Math.sin(angle) * (1.5 + Math.random()),
+          timer: 0, duration: 400,
+          color: CHEESE_TYPES[ch.type].color,
+        });
+      }
+    }
+    if (collected.length >= 2) totalPoints = Math.floor(totalPoints * 1.5);
+    totalPoints *= (game.level + 1);
+    game.score += totalPoints;
+    game.cheeseHoard += collected.length;
+    game.hoardBump = 300; // start bump animation (ms)
+    sfxCheeseCollect(collected.length);
+  }
+}
+
+function holdPiece() {
+  if (game.holdUsed) return;
+  game.holdUsed = true;
+  sfxHold();
+  const type = game.current.type;
+  if (game.held) {
+    const hole = pickMouseHole();
+    const size = PIECES[game.held].size;
+    const col = hole.side === 'left' ? 0 : COLS - size;
+    game.current = { type: game.held, rot: 0, row: hole.row, col, hole };
+    game.held = type;
+    game.scurry = {
+      timer: 0, duration: SCURRY_DURATION,
+      startCol: hole.side === 'left' ? -size : COLS,
+      startRow: hole.row,
+    };
+    sfxScurry();
+  } else {
+    game.held = type;
+    game.current = game.next;
+    game.next = spawnPiece();
+    const hole = game.current.hole;
+    if (hole) {
+      const size = PIECES[game.current.type].size;
+      game.scurry = {
+        timer: 0, duration: SCURRY_DURATION,
+        startCol: hole.side === 'left' ? -size : COLS,
+        startRow: game.current.row,
+      };
+      sfxScurry();
+    }
+  }
+  game.lockTimer = -1;
+  game.lockMoves = 0;
+  game.gravityTimer = 0;
+  updateGhost();
+}
+
+// ============================================================
+//  LINE CLEARING
+// ============================================================
+const SCORE_TABLE = [0, 100, 300, 500, 800]; // 0,1,2,3,4 lines
+
+function checkLines() {
+  const fullRows = [];
+  for (let r = 0; r < ROWS; r++) {
+    if (game.grid[r].every(c => c !== null)) fullRows.push(r);
+  }
+  if (fullRows.length > 0) {
+    game.clearRows = fullRows;
+    game.clearPhase = 0;
+    game.clearTimer = 0;
+    game.state = 'clearing';
+    game.combo++;
+    sfxLineClear(fullRows.length);
+    const levelBefore = game.level;
+    game.lines += fullRows.length;
+    game.score += SCORE_TABLE[fullRows.length] * (game.level + 1);
+    if (game.combo > 1) game.score += 50 * game.combo * (game.level + 1);
+    game.level = Math.floor(game.lines / LINES_PER_LEVEL);
+    if (game.level > levelBefore) {
+      sfxLevelUp();
+      // Theme hook: could swap currentTheme here based on level
+    }
+  } else {
+    game.combo = 0;
+    // No lines — check for color clusters
+    game.cascadeCount = 0;
+    if (checkClusters()) return;
+    nextPiece();
+  }
+}
+
+function updateClearing(dt) {
+  game.clearTimer += dt;
+  if (game.clearPhase === 0 && game.clearTimer > 300) {
+    game.clearPhase = 1;
+    game.clearTimer = 0;
+  } else if (game.clearPhase === 1 && game.clearTimer > 400) {
+    // Remove cheese in cleared rows (lost, not collected)
+    const clearedSet = new Set(game.clearRows);
+    game.cheese = game.cheese.filter(ch => !clearedSet.has(ch.row));
+    // Collapse rows
+    for (const row of game.clearRows.sort((a,b) => b - a)) {
+      game.grid.splice(row, 1);
+      game.grid.unshift(Array(COLS).fill(null));
+    }
+    // Adjust cheese positions after collapse
+    const numCleared = game.clearRows.length;
+    const sortedClears = [...game.clearRows].sort((a,b) => a - b);
+    for (const ch of game.cheese) {
+      const above = sortedClears.filter(r => r < ch.row).length;
+      ch.row = numCleared + ch.row - above;
+    }
+    game.clearRows = [];
+    game.clearPhase = 0;
+    // After line clear, check for color clusters before spawning next piece
+    game.cascadeCount = 0;
+    if (checkClusters()) return;
+    game.state = 'playing';
+    nextPiece();
+  }
+}
+
+// ============================================================
+//  COLOR CLUSTER CLEARING
+// ============================================================
+function findColorClusters() {
+  const visited = Array.from({length: ROWS}, () => Array(COLS).fill(false));
+  const clusters = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (visited[r][c] || !game.grid[r][c] || game.grid[r][c].type === 'blocker') continue;
+      const type = game.grid[r][c].type;
+      const cluster = [];
+      const stack = [[r, c]];
+      while (stack.length > 0) {
+        const [cr, cc] = stack.pop();
+        if (cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS) continue;
+        if (visited[cr][cc]) continue;
+        const cell = game.grid[cr][cc];
+        if (!cell || cell.type !== type) continue;
+        visited[cr][cc] = true;
+        cluster.push([cr, cc]);
+        stack.push([cr-1, cc], [cr+1, cc], [cr, cc-1], [cr, cc+1]);
+      }
+      if (cluster.length >= CLUSTER_MIN_SIZE) {
+        // Require cells from at least 2 different pieces
+        const pieceIds = new Set(cluster.map(([cr, cc]) => game.grid[cr][cc].pieceId));
+        if (pieceIds.size >= 2) {
+          clusters.push({ type, cells: cluster, color: PIECE_COLORS[type] });
+        }
+      }
+    }
+  }
+  return clusters;
+}
+
+function checkClusters() {
+  const clusters = findColorClusters();
+  if (clusters.length === 0) return false;
+  // Collect all cells to clear
+  const allCells = [];
+  let totalScore = 0;
+  for (const cl of clusters) {
+    for (const [r, c] of cl.cells) {
+      allCells.push({ row: r, col: c, type: cl.type, color: cl.color });
+    }
+    // Score: 200 base for 4, +100 per extra cell
+    const pts = 200 + Math.max(0, cl.cells.length - CLUSTER_MIN_SIZE) * 100;
+    totalScore += pts;
+  }
+  // Cascade multiplier
+  const cascadeMult = 1 + game.cascadeCount * 0.5;
+  totalScore = Math.floor(totalScore * cascadeMult * (game.level + 1));
+  game.score += totalScore;
+  game.clusterCells = allCells;
+  game.clusterPhase = 0;
+  game.clusterTimer = 0;
+  game.state = 'cluster_clearing';
+  // Score feedback
+  const avgRow = allCells.reduce((s, c) => s + c.row, 0) / allCells.length;
+  const avgCol = allCells.reduce((s, c) => s + c.col, 0) / allCells.length;
+  const label = game.cascadeCount > 0
+    ? `${game.cascadeCount + 1}x CHAIN! +${totalScore}`
+    : `BURROW! +${totalScore}`;
+  game.cheeseEffects.push({
+    kind: 'text', text: label,
+    col: avgCol, row: avgRow,
+    timer: 0, duration: 1000,
+    color: allCells[0].color, big: true,
+  });
+  sfxClusterClear(allCells.length, game.cascadeCount);
+  game.cascadeCount++;
+  return true;
+}
+
+function updateClusterClearing(dt) {
+  game.clusterTimer += dt;
+  if (game.clusterPhase === 0 && game.clusterTimer > CLUSTER_SHIMMER_TIME) {
+    game.clusterPhase = 1;
+    game.clusterTimer = 0;
+  } else if (game.clusterPhase === 1 && game.clusterTimer > CLUSTER_CLEAR_TIME) {
+    // Remove cluster cells from grid
+    for (const c of game.clusterCells) {
+      game.grid[c.row][c.col] = null;
+    }
+    // Apply gravity — cells fall to fill gaps
+    for (let col = 0; col < COLS; col++) {
+      let writeRow = ROWS - 1;
+      for (let row = ROWS - 1; row >= 0; row--) {
+        if (game.grid[row][col]) {
+          if (row !== writeRow) {
+            game.grid[writeRow][col] = game.grid[row][col];
+            game.grid[row][col] = null;
+          }
+          writeRow--;
+        }
+      }
+    }
+    game.clusterCells = [];
+    game.clusterPhase = 0;
+    // Check for cascading clusters
+    if (checkClusters()) return;
+    // No more clusters — done
+    game.cascadeCount = 0;
+    game.state = 'playing';
+    nextPiece();
+  }
+}
+
+// ============================================================
+//  HIGH SCORES
+// ============================================================
+function loadHighScores() {
+  try {
+    return JSON.parse(localStorage.getItem('mousetris_scores') || '[]').slice(0, 5);
+  } catch { return []; }
+}
+
+function saveHighScore(score) {
+  const scores = loadHighScores();
+  scores.push(score);
+  scores.sort((a,b) => b - a);
+  game.highScores = scores.slice(0, 5);
+  localStorage.setItem('mousetris_scores', JSON.stringify(game.highScores));
+}
+
+// ============================================================
+//  INPUT HANDLING
+// ============================================================
+const keys = {};
+let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+let touchMoved = false;
+let touchId = null;
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (screen === 'title') { startGame(); return; }
+  if (e.repeat && (e.key === 'ArrowUp' || e.key === ' ' || e.key === 'x' || e.key === 'z' || e.key === 'c')) return;
+  keys[e.key] = true;
+
+  if (game && game.state === 'playing' && !game.scurry) {
+    switch(e.key) {
+      case 'ArrowLeft':
+        if (!game.dasActive || game.dasDir !== -1) {
+          tryMove(0, -1);
+          game.dasDir = -1;
+          game.dasTimer = 0;
+          game.dasActive = false;
+        }
+        break;
+      case 'ArrowRight':
+        if (!game.dasActive || game.dasDir !== 1) {
+          tryMove(0, 1);
+          game.dasDir = 1;
+          game.dasTimer = 0;
+          game.dasActive = false;
+        }
+        break;
+      case 'ArrowDown':
+        game.softDrop = true;
+        if (tryMove(1, 0)) game.score += 1;
+        break;
+      case 'ArrowUp': case 'x': case 'X':
+        tryRotate(1);
+        break;
+      case 'z': case 'Z':
+        tryRotate(-1);
+        break;
+      case ' ':
+        e.preventDefault();
+        hardDrop();
+        break;
+      case 'c': case 'C':
+        holdPiece();
+        break;
+    }
+  }
+  if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+    if (game) {
+      if (game.state === 'playing') { game.state = 'paused'; stopMusic(); }
+      else if (game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); }
+    }
+  }
+  if (game && game.state === 'gameover' && e.key === 'Enter') {
+    startGame();
+  }
+});
+
+document.addEventListener('keyup', e => {
+  keys[e.key] = false;
+  if (e.key === 'ArrowDown') game && (game.softDrop = false);
+  if (e.key === 'ArrowLeft' && game && game.dasDir === -1) { game.dasDir = 0; game.dasActive = false; }
+  if (e.key === 'ArrowRight' && game && game.dasDir === 1) { game.dasDir = 0; game.dasActive = false; }
+});
+
+// Touch
+const canvas = document.getElementById('gameCanvas');
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  if (screen === 'title') { startGame(); return; }
+  if (game && game.state === 'gameover') { startGame(); return; }
+  if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+  touchStartTime = Date.now();
+  touchMoved = false;
+  touchId = touch.identifier;
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!game || game.state !== 'playing' || game.scurry) return;
+  const touch = Array.from(e.touches).find(t => t.identifier === touchId);
+  if (!touch) return;
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
+  const cellPx = canvasScale * CELL;
+
+  // Horizontal swipe → move piece
+  if (Math.abs(dx) > cellPx * 0.8 && Math.abs(dx) > Math.abs(dy)) {
+    const dir = dx > 0 ? 1 : -1;
+    if (tryMove(0, dir)) {
+      touchStartX += dir * cellPx * 0.8;
+      touchMoved = true;
+    }
+  }
+
+  // Downward swipe → soft drop
+  if (dy > cellPx * 0.8 && dy > Math.abs(dx)) {
+    if (tryMove(1, 0)) {
+      game.score += 1;
+      touchStartY += cellPx * 0.8;
+      touchMoved = true;
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!game || game.state !== 'playing' || game.scurry) return;
+  const dt = Date.now() - touchStartTime;
+  if (!touchMoved && dt < 300) {
+    // Quick tap
+    const touch = e.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    const w = rect.width;
+    const h = rect.height;
+    const relX = x / w;
+    const relY = y / h;
+
+    if (relY < 0.15) {
+      // Top zone — hold piece
+      holdPiece();
+    } else if (relY > 0.85) {
+      // Bottom zone — hard drop
+      hardDrop();
+    } else {
+      // Middle zone — rotate
+      tryRotate(1);
+    }
+  }
+  // Check for upward swipe → rotate
+  if (touchMoved) {
+    const touch = e.changedTouches[0];
+    const dy = touch.clientY - touchStartY;
+    if (dy < -canvasScale * CELL * 2) {
+      tryRotate(1);
+    }
+  }
+  touchId = null;
+}, { passive: false });
+
+// ============================================================
+//  RENDERING
+// ============================================================
+const ctx = canvas.getContext('2d');
+let canvasW = 0, canvasH = 0, canvasScale = 1;
+let playX = 0, playY = 0; // top-left of playfield in canvas coords
+
+function resizeCanvas() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Playfield = COLS*CELL wide, ROWS*CELL tall + HUD space
+  const sidePanel = 6 * CELL; // next/hold panel
+  const totalW = COLS * CELL + sidePanel + CELL * 2; // margins
+  const totalH = ROWS * CELL + CELL * 4; // top/bottom HUD
+  const scale = Math.min(vw / totalW, vh / totalH, 2);
+  canvasScale = scale;
+  canvasW = Math.floor(totalW * scale);
+  canvasH = Math.floor(totalH * scale);
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  canvas.style.width = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+
+  // Playfield position
+  playX = Math.floor(CELL * scale);
+  playY = Math.floor(CELL * 2.5 * scale);
+}
+
+function drawCell(col, row, color, alpha = 1) {
+  const s = canvasScale;
+  const x = playX + col * CELL * s;
+  const y = playY + row * CELL * s;
+  const cs = CELL * s;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 1, y + 1, cs - 2, cs - 2);
+  // Highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(x + 1, y + 1, cs - 2, 3 * s);
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fillRect(x + 1, y + cs - 3 * s, cs - 2, 3 * s);
+  ctx.globalAlpha = 1;
+}
+
+function drawMouseOnCell(col, row, fur, alpha = 1) {
+  // Draw a tiny mouse face on a placed cell
+  const s = canvasScale;
+  const cx = playX + (col + 0.5) * CELL * s;
+  const cy = playY + (row + 0.5) * CELL * s;
+  const r = CELL * s * 0.3;
+  ctx.globalAlpha = alpha;
+
+  // Ears
+  ctx.fillStyle = fur.ear;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.7, cy - r * 0.7, r * 0.45, r * 0.55, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.7, cy - r * 0.7, r * 0.45, r * 0.55, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner ears
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.7, cy - r * 0.7, r * 0.25, r * 0.35, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.7, cy - r * 0.7, r * 0.25, r * 0.35, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = fur.body;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = fur.eye;
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.35, cy - r * 0.1, r * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.35, cy - r * 0.1, r * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye shine
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.28, cy - r * 0.18, r * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.42, cy - r * 0.18, r * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.arc(cx, cy + r * 0.3, r * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Whiskers
+  ctx.strokeStyle = fur.body;
+  ctx.lineWidth = s * 0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.2, cy + r * 0.25);
+  ctx.lineTo(cx - r * 1.2, cy + r * 0.1);
+  ctx.moveTo(cx - r * 0.2, cy + r * 0.35);
+  ctx.lineTo(cx - r * 1.1, cy + r * 0.5);
+  ctx.moveTo(cx + r * 0.2, cy + r * 0.25);
+  ctx.lineTo(cx + r * 1.2, cy + r * 0.1);
+  ctx.moveTo(cx + r * 0.2, cy + r * 0.35);
+  ctx.lineTo(cx + r * 1.1, cy + r * 0.5);
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+//  MOUSE ART — Multi-mouse partition system
+// ============================================================
+
+// Partition 4 cells into 2-3 groups of adjacent cells
+function partitionCells(cells) {
+  const adj = (a, b) => Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) === 1;
+
+  // Try all ways to split into 2 pairs of adjacent cells
+  for (let i = 0; i < 4; i++) {
+    for (let j = i + 1; j < 4; j++) {
+      if (adj(cells[i], cells[j])) {
+        const rem = [0,1,2,3].filter(k => k !== i && k !== j);
+        if (adj(cells[rem[0]], cells[rem[1]])) {
+          return [[cells[i], cells[j]], [cells[rem[0]], cells[rem[1]]]];
+        }
+      }
+    }
+  }
+  // Fallback: find one adjacent pair + two singles (3 mice)
+  for (let i = 0; i < 4; i++) {
+    for (let j = i + 1; j < 4; j++) {
+      if (adj(cells[i], cells[j])) {
+        const rem = [0,1,2,3].filter(k => k !== i && k !== j);
+        return [[cells[i], cells[j]], [cells[rem[0]]], [cells[rem[1]]]];
+      }
+    }
+  }
+  return cells.map(c => [c]);
+}
+
+// Draw a single mouse spanning 1 or 2 cells
+function drawGroupMouse(group, baseX, baseY, s, fur, alpha, groupIdx) {
+  ctx.globalAlpha = alpha;
+  if (group.length === 1) {
+    drawCurledMouse(baseX + (group[0][1] + 0.5) * s, baseY + (group[0][0] + 0.5) * s, s, fur, groupIdx);
+  } else {
+    const [a, b] = group;
+    const isHoriz = a[0] === b[0];
+    const cx = baseX + (a[1] + b[1] + 1) * s / 2;
+    const cy = baseY + (a[0] + b[0] + 1) * s / 2;
+    // Determine facing: head toward smaller col (horiz) or smaller row (vert)
+    const facing = isHoriz ? (a[1] < b[1] ? -1 : 1) : 1;
+    drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, groupIdx);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Curled mouse in a single cell — cozy ball
+function drawCurledMouse(cx, cy, s, fur, idx) {
+  const r = s * 0.38;
+  // Body
+  ctx.fillStyle = fur.body;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  // Belly
+  ctx.fillStyle = fur.belly;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + r * 0.1, r * 0.6, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Ears
+  const earDir = (idx % 2 === 0) ? -1 : 1;
+  ctx.fillStyle = fur.ear;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.5, cy - r * 0.65, r * 0.32, r * 0.4, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.5, cy - r * 0.65, r * 0.32, r * 0.4, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  // Inner ears
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.5, cy - r * 0.65, r * 0.18, r * 0.25, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.5, cy - r * 0.65, r * 0.18, r * 0.25, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = fur.eye;
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.25, cy - r * 0.15, r * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.25, cy - r * 0.15, r * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye shine
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.2, cy - r * 0.22, r * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.3, cy - r * 0.22, r * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  // Nose
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.arc(cx, cy + r * 0.15, r * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  // Tail curl
+  ctx.strokeStyle = fur.ear;
+  ctx.lineWidth = s * 0.04;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.1 * earDir, cy + r * 0.2, r * 0.55, 0.5 * earDir, (Math.PI * 1.1) * earDir, earDir < 0);
+  ctx.stroke();
+}
+
+// Stretched mouse spanning 2 cells
+function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx) {
+  const bodyRx = isHoriz ? s * 0.82 : s * 0.34;
+  const bodyRy = isHoriz ? s * 0.3 : s * 0.82;
+  const headR = s * 0.25;
+
+  // Body ellipse
+  ctx.fillStyle = fur.body;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, bodyRx, bodyRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Belly
+  ctx.fillStyle = fur.belly;
+  if (isHoriz) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + bodyRy * 0.15, bodyRx * 0.65, bodyRy * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.ellipse(cx + bodyRx * 0.15, cy, bodyRx * 0.55, bodyRy * 0.65, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head position
+  let hx, hy;
+  if (isHoriz) {
+    hx = cx + facing * bodyRx * 0.7;
+    hy = cy - bodyRy * 0.35;
+  } else {
+    const vFacing = (idx % 2 === 0) ? -1 : 1;
+    hx = cx;
+    hy = cy + vFacing * bodyRy * 0.7;
+  }
+
+  // Ears
+  ctx.fillStyle = fur.ear;
+  const ef = isHoriz ? facing : 1;
+  ctx.beginPath();
+  ctx.ellipse(hx - headR * 0.7 * ef, hy - headR * 0.65, headR * 0.35, headR * 0.45, -0.3 * ef, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(hx + headR * 0.7 * ef, hy - headR * 0.65, headR * 0.35, headR * 0.45, 0.3 * ef, 0, Math.PI * 2);
+  ctx.fill();
+  // Inner ears
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.ellipse(hx - headR * 0.7 * ef, hy - headR * 0.65, headR * 0.2, headR * 0.28, -0.3 * ef, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(hx + headR * 0.7 * ef, hy - headR * 0.65, headR * 0.2, headR * 0.28, 0.3 * ef, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head circle
+  ctx.fillStyle = fur.body;
+  ctx.beginPath();
+  ctx.arc(hx, hy, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = fur.eye;
+  ctx.beginPath();
+  ctx.arc(hx - headR * 0.3, hy - headR * 0.05, headR * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(hx + headR * 0.3, hy - headR * 0.05, headR * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye shine
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(hx - headR * 0.23, hy - headR * 0.12, headR * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(hx + headR * 0.37, hy - headR * 0.12, headR * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  // Nose
+  ctx.fillStyle = fur.nose;
+  ctx.beginPath();
+  ctx.arc(hx, hy + headR * 0.2, headR * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Whiskers
+  ctx.strokeStyle = fur.ear;
+  ctx.lineWidth = s * 0.02;
+  ctx.beginPath();
+  ctx.moveTo(hx - headR * 0.15, hy + headR * 0.15);
+  ctx.lineTo(hx - headR * 0.8, hy + headR * 0.0);
+  ctx.moveTo(hx - headR * 0.15, hy + headR * 0.22);
+  ctx.lineTo(hx - headR * 0.75, hy + headR * 0.35);
+  ctx.moveTo(hx + headR * 0.15, hy + headR * 0.15);
+  ctx.lineTo(hx + headR * 0.8, hy + headR * 0.0);
+  ctx.moveTo(hx + headR * 0.15, hy + headR * 0.22);
+  ctx.lineTo(hx + headR * 0.75, hy + headR * 0.35);
+  ctx.stroke();
+
+  // Paws
+  ctx.fillStyle = fur.ear;
+  if (isHoriz) {
+    const pawY = cy + bodyRy * 0.7;
+    for (let i = 0; i < 4; i++) {
+      const px = cx + (i - 1.5) * s * 0.22;
+      ctx.beginPath();
+      ctx.ellipse(px, pawY, s * 0.05, s * 0.035, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    const pawX = cx + bodyRx * 0.7;
+    for (let i = 0; i < 4; i++) {
+      const py = cy + (i - 1.5) * s * 0.22;
+      ctx.beginPath();
+      ctx.ellipse(pawX, py, s * 0.035, s * 0.05, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx - bodyRx * 0.7, py, s * 0.035, s * 0.05, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Tail
+  let tx1, ty1, tx2, ty2;
+  if (isHoriz) {
+    tx1 = cx - facing * bodyRx * 0.85;
+    ty1 = cy;
+    tx2 = tx1 - facing * s * 0.3;
+    ty2 = ty1 - s * 0.35;
+  } else {
+    const vFacing = (idx % 2 === 0) ? -1 : 1;
+    tx1 = cx;
+    ty1 = cy - vFacing * bodyRy * 0.85;
+    tx2 = tx1 + s * 0.3;
+    ty2 = ty1 - vFacing * s * 0.3;
+  }
+  ctx.strokeStyle = fur.ear;
+  ctx.lineWidth = s * 0.045;
+  ctx.lineCap = 'round';
+  const mx = (tx1 + tx2) / 2 + (ty2 - ty1) * 0.4;
+  const my = (ty1 + ty2) / 2 + (tx1 - tx2) * 0.4;
+  ctx.beginPath();
+  ctx.moveTo(tx1, ty1);
+  ctx.quadraticCurveTo(mx, my, tx2, ty2);
+  ctx.stroke();
+}
+
+// Draw the full piece as a group of mice
+function drawPieceMouse(piece, baseX, baseY, cellSize, alpha = 1) {
+  const type = piece.type || piece;
+  const rot = piece.rot || 0;
+  const cells = getCells(type, rot);
+  const furs = PIECE_FURS[type];
+  const groups = partitionCells(cells);
+  groups.forEach((group, gi) => {
+    drawGroupMouse(group, baseX, baseY, cellSize, furs[gi % furs.length], alpha, gi);
+  });
+}
+
+// --- Draw the playfield ---
+function drawCheese(col, row, cheese) {
+  const s = canvasScale;
+  const x = playX + (col + 0.5) * CELL * s;
+  const y = playY + (row + 0.5) * CELL * s;
+  const r = CELL * s * 0.35;
+  const typeDef = CHEESE_TYPES[cheese.type];
+  const freshRatio = cheese.freshness / CHEESE_DECAY_TIME;
+
+  ctx.save();
+  // Cheese wedge (triangle)
+  ctx.fillStyle = typeDef.color;
+  ctx.globalAlpha = 0.5 + freshRatio * 0.5;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + r, y + r * 0.6);
+  ctx.lineTo(x - r, y + r * 0.6);
+  ctx.closePath();
+  ctx.fill();
+  // Rind
+  ctx.strokeStyle = typeDef.holeColor;
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y + r * 0.6);
+  ctx.lineTo(x - r, y + r * 0.6);
+  ctx.stroke();
+  // Swiss holes
+  if (cheese.type === 'swiss') {
+    ctx.fillStyle = typeDef.holeColor;
+    ctx.beginPath();
+    ctx.arc(x - r * 0.2, y, r * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.15, y + r * 0.2, r * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Golden shimmer
+  if (cheese.type === 'golden') {
+    const shimmer = 0.3 + Math.sin(Date.now() / 200) * 0.3;
+    ctx.fillStyle = `rgba(255,255,200,${shimmer * ctx.globalAlpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.2, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Stink lines when decaying
+  if (freshRatio < 0.5) {
+    const stinkAlpha = (1 - freshRatio * 2) * 0.5 * ctx.globalAlpha;
+    ctx.strokeStyle = `rgba(100,120,80,${stinkAlpha})`;
+    ctx.lineWidth = s;
+    for (let i = 0; i < 3; i++) {
+      const ox = (i - 1) * r * 0.4;
+      const wave = Math.sin(Date.now() / 300 + i) * r * 0.15;
+      ctx.beginPath();
+      ctx.moveTo(x + ox, y - r);
+      ctx.quadraticCurveTo(x + ox + wave, y - r * 1.5, x + ox, y - r * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawMouseHoles() {
+  const s = canvasScale;
+  const pw = COLS * CELL * s;
+  const level = game ? game.level : 0;
+
+  for (const hole of MOUSE_HOLES) {
+    if (hole.minLevel > level) continue;
+    const holeY = playY + (hole.row + 0.5) * CELL * s;
+    const holeX = hole.side === 'left' ? playX - 3 * s : playX + pw + 3 * s;
+    const hr = CELL * s * 0.35;
+
+    // Dark archway
+    ctx.fillStyle = '#0a0705';
+    ctx.beginPath();
+    ctx.ellipse(holeX, holeY, hr * 0.8, hr, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Arch border
+    ctx.strokeStyle = COLORS.frameLt;
+    ctx.lineWidth = 2 * s;
+    ctx.beginPath();
+    ctx.ellipse(holeX, holeY, hr * 0.8, hr, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Highlight next hole
+    if (game && game.next && game.next.hole === hole) {
+      const pulse = 0.4 + Math.sin(Date.now() / 300) * 0.4;
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = COLORS.accent;
+      ctx.lineWidth = 2 * s;
+      ctx.beginPath();
+      ctx.ellipse(holeX, holeY, hr * 1.2, hr * 1.4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function drawPlayfield() {
+  const s = canvasScale;
+  const pw = COLS * CELL * s;
+  const ph = ROWS * CELL * s;
+
+  // Background
+  ctx.fillStyle = currentTheme.gridBg;
+  ctx.fillRect(playX, playY, pw, ph);
+
+  // Grid lines
+  ctx.strokeStyle = currentTheme.gridLine;
+  ctx.lineWidth = 1;
+  for (let c = 0; c <= COLS; c++) {
+    const x = playX + c * CELL * s;
+    ctx.beginPath();
+    ctx.moveTo(x, playY);
+    ctx.lineTo(x, playY + ph);
+    ctx.stroke();
+  }
+  for (let r = 0; r <= ROWS; r++) {
+    const y = playY + r * CELL * s;
+    ctx.beginPath();
+    ctx.moveTo(playX, y);
+    ctx.lineTo(playX + pw, y);
+    ctx.stroke();
+  }
+
+  // Frame border
+  ctx.strokeStyle = currentTheme.frameFill;
+  ctx.lineWidth = 4 * s;
+  ctx.strokeRect(playX - 2 * s, playY - 2 * s, pw + 4 * s, ph + 4 * s);
+  // Outer frame
+  ctx.strokeStyle = COLORS.frameLt;
+  ctx.lineWidth = 2 * s;
+  ctx.strokeRect(playX - 5 * s, playY - 5 * s, pw + 10 * s, ph + 10 * s);
+
+  // Placed blocks
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = game.grid[r][c];
+      if (cell) {
+        // Check if row is being cleared
+        const clearing = game.state === 'clearing' && game.clearRows.includes(r);
+        if (clearing) {
+          if (game.clearPhase === 0) {
+            // Startle phase — draw with startled eyes
+            drawCell(c, r, cell.color, 1);
+            if (cell.type !== 'blocker') drawMouseOnCell(c, r, cell.fur, 1);
+          } else {
+            // Scatter phase — fade out and move
+            const t = game.clearTimer / 400;
+            const offsetX = (Math.random() - 0.5) * t * CELL * s * 2;
+            ctx.save();
+            ctx.translate(offsetX, -t * CELL * s);
+            drawCell(c, r, cell.color, 1 - t);
+            if (cell.type !== 'blocker') drawMouseOnCell(c, r, cell.fur, 1 - t);
+            ctx.restore();
+          }
+        } else if (cell.type === 'blocker') {
+          // Moldy cheese blocker
+          drawCell(c, r, cell.color);
+          const bx = playX + (c + 0.5) * CELL * s;
+          const by = playY + (r + 0.5) * CELL * s;
+          const br = CELL * s * 0.2;
+          ctx.fillStyle = '#6a7a5a';
+          for (let i = 0; i < 3; i++) {
+            const ox = (i - 1) * br * 0.8;
+            const oy = Math.sin(i * 2.1) * br * 0.5;
+            ctx.beginPath();
+            ctx.arc(bx + ox, by + oy, br * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // Check if this cell is part of a cluster being cleared
+          const inCluster = game.state === 'cluster_clearing' &&
+            game.clusterCells.some(cc => cc.row === r && cc.col === c);
+          if (inCluster) {
+            if (game.clusterPhase === 0) {
+              // Shimmer phase — pulsing glow
+              const pulse = 0.6 + Math.sin(game.clusterTimer / 50 + r + c) * 0.4;
+              drawCell(c, r, cell.color, pulse);
+              if (cell.fur) drawMouseOnCell(c, r, cell.fur, pulse);
+              // Color glow overlay
+              ctx.globalAlpha = (1 - pulse) * 0.5;
+              ctx.fillStyle = '#fff';
+              ctx.fillRect(
+                playX + c * CELL * s + 1, playY + r * CELL * s + 1,
+                CELL * s - 2, CELL * s - 2
+              );
+              ctx.globalAlpha = 1;
+            } else {
+              // Clear phase — shrink and fade
+              const t = game.clusterTimer / CLUSTER_CLEAR_TIME;
+              const scale = 1 - t;
+              const cx = playX + (c + 0.5) * CELL * s;
+              const cy = playY + (r + 0.5) * CELL * s;
+              ctx.save();
+              ctx.translate(cx, cy);
+              ctx.scale(scale, scale);
+              ctx.translate(-cx, -cy);
+              drawCell(c, r, cell.color, 1 - t);
+              if (cell.fur) drawMouseOnCell(c, r, cell.fur, 1 - t);
+              ctx.restore();
+            }
+          } else {
+            drawCell(c, r, cell.color);
+            drawMouseOnCell(c, r, cell.fur);
+          }
+        }
+      }
+    }
+  }
+
+  // Draw cheese on the board
+  for (const ch of game.cheese) {
+    drawCheese(ch.col, ch.row, ch);
+  }
+
+  // Draw mouse holes on the walls
+  drawMouseHoles();
+}
+
+function drawCheeseEffects() {
+  const s = canvasScale;
+
+  // Screen flash overlay
+  if (game.screenFlash > 0) {
+    const ft = game.screenFlash / 200;
+    ctx.globalAlpha = ft * 0.25;
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(playX, playY, COLS * CELL * s, ROWS * CELL * s);
+    ctx.globalAlpha = 1;
+  }
+
+  for (const fx of game.cheeseEffects) {
+    const t = fx.timer / fx.duration;
+    if (fx.kind === 'text') {
+      const x = playX + (fx.col + 0.5) * CELL * s;
+      const rise = fx.big ? 2.5 : 1.8;
+      const y = playY + (fx.row + 0.5) * CELL * s - t * CELL * s * rise;
+      ctx.globalAlpha = 1 - t * t;
+      ctx.fillStyle = fx.color;
+      const baseSize = fx.big ? 18 : 13;
+      const growSize = fx.big ? 8 : 4;
+      ctx.font = `bold ${(baseSize + (1 - t) * growSize) * s}px 'Segoe UI', sans-serif`;
+      ctx.textAlign = 'center';
+      // Drop shadow for big text
+      if (fx.big) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillText(fx.text, x + 1.5 * s, y + 1.5 * s);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(fx.text, x, y);
+        ctx.fillStyle = fx.color;
+        ctx.globalAlpha = (1 - t * t) * 0.7;
+        ctx.fillText(fx.text, x, y);
+      } else {
+        ctx.fillText(fx.text, x, y);
+      }
+      ctx.globalAlpha = 1;
+    } else if (fx.kind === 'ring') {
+      // Expanding ring burst
+      const x = playX + fx.col * CELL * s;
+      const y = playY + fx.row * CELL * s;
+      const radius = t * CELL * s * 2;
+      ctx.globalAlpha = (1 - t) * 0.7;
+      ctx.strokeStyle = fx.color;
+      ctx.lineWidth = (1 - t) * 4 * s;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else if (fx.kind === 'crumb') {
+      const x = playX + fx.col * CELL * s + fx.vx * t * CELL * s * 0.5;
+      const y = playY + fx.row * CELL * s + fx.vy * t * CELL * s * 0.5;
+      const r = (1 - t) * 3 * s;
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = fx.color;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function getGhostAdjacentCheese() {
+  if (!game.ghost || !game.cheese.length) return [];
+  const ghostCells = getCells(game.ghost.type, game.ghost.rot);
+  const adjacent = new Set();
+  for (const [cr, cc] of ghostCells) {
+    const r = game.ghost.row + cr, c = game.ghost.col + cc;
+    for (let i = 0; i < game.cheese.length; i++) {
+      const ch = game.cheese[i];
+      const dr = Math.abs(ch.row - r);
+      const dc = Math.abs(ch.col - c);
+      if ((dr === 0 && dc === 0) || (dr + dc === 1)) adjacent.add(i);
+    }
+  }
+  return [...adjacent];
+}
+
+function drawCurrentPiece() {
+  if (!game.current || game.state !== 'playing') return;
+  const p = game.current;
+  const s = canvasScale;
+
+  // Ghost piece (hide during scurry)
+  if (!game.scurry && game.ghost && game.ghost.row !== p.row) {
+    const cells = getCells(game.ghost.type, game.ghost.rot);
+    for (const [cr, cc] of cells) {
+      drawCell(game.ghost.col + cc, game.ghost.row + cr, PIECE_COLORS[game.ghost.type], 0.2);
+    }
+    // Highlight cheese that would be collected at ghost position
+    const adjIdx = getGhostAdjacentCheese();
+    if (adjIdx.length > 0) {
+      const pulse = 0.5 + Math.sin(Date.now() / 150) * 0.5;
+      for (const idx of adjIdx) {
+        const ch = game.cheese[idx];
+        const cx = playX + (ch.col + 0.5) * CELL * s;
+        const cy = playY + (ch.row + 0.5) * CELL * s;
+        const r = CELL * s * 0.55;
+        ctx.globalAlpha = 0.3 + pulse * 0.4;
+        ctx.strokeStyle = CHEESE_TYPES[ch.type].color;
+        ctx.lineWidth = 2.5 * s;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Calculate scurry slide offset
+  let offsetX = 0;
+  if (game.scurry) {
+    const t = Math.min(game.scurry.timer / game.scurry.duration, 1);
+    const eased = 1 - (1 - t) * (1 - t); // ease-out quadratic
+    const startPx = game.scurry.startCol * CELL * s;
+    const endPx = p.col * CELL * s;
+    offsetX = startPx + (endPx - startPx) * eased - endPx;
+  }
+
+  // Active piece — draw colored glow around each mouse group (not per-cell)
+  const cells = getCells(p.type, p.rot);
+  const pieceColor = PIECE_COLORS[p.type];
+  const glowBaseX = playX + p.col * CELL * s + offsetX;
+  const glowBaseY = playY + p.row * CELL * s;
+  const pulse = 0.5 + Math.sin(Date.now() / 300) * 0.2;
+  const groups = partitionCells(cells);
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  for (const group of groups) {
+    if (group.length === 1) {
+      // Curled mouse — circular glow
+      const cx = glowBaseX + (group[0][1] + 0.5) * CELL * s;
+      const cy = glowBaseY + (group[0][0] + 0.5) * CELL * s;
+      const gr = ctx.createRadialGradient(cx, cy, CELL * s * 0.2, cx, cy, CELL * s * 0.55);
+      gr.addColorStop(0, pieceColor);
+      gr.addColorStop(1, 'transparent');
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.arc(cx, cy, CELL * s * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Stretched mouse — oval glow spanning both cells
+      const [a, b] = group;
+      const cx = glowBaseX + (a[1] + b[1] + 1) * CELL * s / 2;
+      const cy = glowBaseY + (a[0] + b[0] + 1) * CELL * s / 2;
+      const isHoriz = a[0] === b[0];
+      const rx = isHoriz ? CELL * s * 0.9 : CELL * s * 0.45;
+      const ry = isHoriz ? CELL * s * 0.45 : CELL * s * 0.9;
+      const gr = ctx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.3, cx, cy, Math.max(rx, ry));
+      gr.addColorStop(0, pieceColor);
+      gr.addColorStop(1, 'transparent');
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Active piece — draw as mouse pose on top
+  const baseX = glowBaseX;
+  const baseY = glowBaseY;
+  drawPieceMouse(p, baseX, baseY, CELL * s);
+}
+
+function drawPreviewPiece(piece, cx, cy, cellSize, label) {
+  const s = canvasScale;
+  // Label
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${10 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, cx, cy - cellSize * 2.5);
+
+  // Box
+  const boxW = cellSize * 4.5;
+  const boxH = cellSize * 4.5;
+  ctx.fillStyle = 'rgba(13,9,6,0.5)';
+  ctx.strokeStyle = COLORS.frame;
+  ctx.lineWidth = 2 * s;
+  ctx.fillRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+
+  if (!piece) return;
+  const pDef = PIECES[piece.type || piece];
+  const type = piece.type || piece;
+  const rot = piece.rot || 0;
+  const cells = getCells(type, rot);
+  // Center the piece in the box
+  let minR = 9, maxR = 0, minC = 9, maxC = 0;
+  for (const [cr, cc] of cells) {
+    minR = Math.min(minR, cr); maxR = Math.max(maxR, cr);
+    minC = Math.min(minC, cc); maxC = Math.max(maxC, cc);
+  }
+  const pw = (maxC - minC + 1) * cellSize;
+  const ph = (maxR - minR + 1) * cellSize;
+  const ox = cx - pw / 2 - minC * cellSize;
+  const oy = cy - ph / 2 - minR * cellSize;
+
+  // Color indicator: tinted background stripe + colored border for cluster color
+  const pieceColor = PIECE_COLORS[type];
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = pieceColor;
+  ctx.fillRect(cx - boxW / 2 + 2, cy - boxH / 2 + 2, boxW - 4, boxH - 4);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = pieceColor;
+  ctx.lineWidth = 2.5 * s;
+  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  ctx.restore();
+
+  drawPieceMouse({ type, rot }, ox, oy, cellSize);
+}
+
+function drawHUD() {
+  const s = canvasScale;
+  const pw = COLS * CELL * s;
+
+  // Score
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${14 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(`Score: ${game.score}`, playX, playY - 14 * s);
+
+  // Cheese hoard (with bump animation)
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORS.accent;
+  if (game.hoardBump > 0) {
+    const bump = game.hoardBump / 300;
+    const scale = 1 + bump * 0.35;
+    const hx = playX + pw / 2;
+    const hy = playY - 14 * s;
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.scale(scale, scale);
+    ctx.fillText(`🧀 ${game.cheeseHoard}`, 0, 0);
+    ctx.restore();
+  } else {
+    ctx.fillText(`🧀 ${game.cheeseHoard}`, playX + pw / 2, playY - 14 * s);
+  }
+
+  // Level + Lines
+  ctx.textAlign = 'right';
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText(`Lv${game.level + 1} · ${game.lines}L`, playX + pw, playY - 14 * s);
+
+  // Side panel — next + hold
+  const panelX = playX + pw + CELL * s * 1.5;
+  const previewSize = PREVIEW_CELL * s;
+
+  drawPreviewPiece(game.next, panelX, playY + CELL * s * 3, previewSize, 'NEXT');
+  drawPreviewPiece(game.held, panelX, playY + CELL * s * 8, previewSize, 'HOLD');
+
+  // Combo indicator
+  if (game.combo > 1) {
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${game.combo}x COMBO!`, playX + pw / 2, playY + (ROWS * CELL + 18) * s);
+  }
+
+  // Danger indicator
+  const highestRow = getHighestOccupiedRow();
+  if (highestRow >= 0 && highestRow < 4) {
+    const intensity = 1 - highestRow / 4;
+    ctx.fillStyle = `rgba(224,80,80,${0.08 + intensity * 0.12})`;
+    ctx.fillRect(playX, playY, pw, ROWS * CELL * s);
+  }
+
+  // Touch hints (bottom)
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${8 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  const hintY = playY + (ROWS * CELL + 30) * s;
+  ctx.fillText('← swipe → | tap: rotate | ↓ swipe: drop', playX + pw / 2, hintY);
+}
+
+function getHighestOccupiedRow() {
+  for (let r = 0; r < ROWS; r++) {
+    if (game.grid[r].some(c => c !== null)) return r;
+  }
+  return ROWS;
+}
+
+// ============================================================
+//  SCREENS
+// ============================================================
+let screen = 'title'; // 'title' | 'game'
+let titleAnim = 0;
+
+function drawTitleScreen(dt) {
+  titleAnim += dt;
+  const s = canvasScale;
+  const w = canvasW, h = canvasH;
+
+  // Background
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Warm vignette
+  const grad = ctx.createRadialGradient(w / 2, h / 2, w * 0.15, w / 2, h / 2, w * 0.6);
+  grad.addColorStop(0, 'rgba(232,168,64,0.06)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Title
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${36 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('🐭 MOUSETRIS', w / 2, h * 0.25);
+
+  // Subtitle
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('A very cozy puzzle', w / 2, h * 0.31);
+
+  // Animated mouse preview — draw a rotating piece
+  const previewType = PIECE_NAMES[Math.floor(titleAnim / 2000) % 7];
+  const previewRot = Math.floor(titleAnim / 800) % 4;
+  const previewS = CELL * s * 0.9;
+  drawPieceMouse(
+    { type: previewType, rot: previewRot },
+    w / 2 - previewS * 2,
+    h * 0.42,
+    previewS,
+    0.8
+  );
+
+  // CTA
+  const pulse = 0.7 + Math.sin(titleAnim / 500) * 0.3;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('tap or press any key to start', w / 2, h * 0.7);
+  ctx.globalAlpha = 1;
+
+  // High scores
+  const scores = loadHighScores();
+  if (scores.length > 0) {
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('🏆 Best: 🧀' + scores[0], w / 2, h * 0.8);
+  }
+
+  // Controls hint
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('swipe/tap (mobile) • arrows/space (desktop)', w / 2, h * 0.92);
+}
+
+function drawPauseOverlay() {
+  const s = canvasScale;
+  ctx.fillStyle = 'rgba(26,18,11,0.8)';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('⏸ PAUSED', canvasW / 2, canvasH * 0.4);
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('tap or press P to resume', canvasW / 2, canvasH * 0.5);
+}
+
+function drawGameOver() {
+  const s = canvasScale;
+  ctx.fillStyle = 'rgba(26,18,11,0.85)';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('🐭 Too Many Mice!', canvasW / 2, canvasH * 0.25);
+
+  ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`Score: ${game.score}`, canvasW / 2, canvasH * 0.35);
+  ctx.fillStyle = COLORS.accent;
+  ctx.fillText(`🧀 ${game.cheeseHoard} collected`, canvasW / 2, canvasH * 0.39);
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`Level ${game.level + 1} • ${game.lines} lines`, canvasW / 2, canvasH * 0.43);
+
+  // High scores
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${13 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('🏆 High Scores', canvasW / 2, canvasH * 0.53);
+  ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
+  const scores = game.highScores;
+  for (let i = 0; i < Math.min(5, scores.length); i++) {
+    const isNew = scores[i] === game.score && i === scores.indexOf(game.score);
+    ctx.fillStyle = isNew ? COLORS.accent : COLORS.textDim;
+    ctx.fillText(`${i + 1}. ${scores[i]}${isNew ? ' ← NEW' : ''}`, canvasW / 2, canvasH * 0.59 + i * 18 * s);
+  }
+
+  const pulse = 0.6 + Math.sin(Date.now() / 500) * 0.4;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('tap or Enter to play again', canvasW / 2, canvasH * 0.85);
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+//  GAME LOOP
+// ============================================================
+let lastTime = 0;
+
+function startGame() {
+  initAudio();
+  newGame();
+  screen = 'game';
+  if (musicEnabled) startMusic();
+}
+
+// ============================================================
+//  CAT LOGIC
+// ============================================================
+function updateCat(dt) {
+  const cat = game.cat;
+  if (cat.phase === 'idle') {
+    if (cat.timer >= cat.nextAppear) {
+      cat.phase = 'warning';
+      cat.timer = 0;
+      cat.direction = Math.random() < 0.5 ? 1 : -1;
+      cat.batted = false;
+      cat.batCooldown = 0;
+      cat.lurkSwipes = 0;
+      // Pick random attack pattern
+      cat.attack = CAT_ATTACKS[Math.floor(Math.random() * CAT_ATTACKS.length)];
+      // Vary vertical position within threat zone
+      cat.prowlRow = 0.8 + Math.random() * (CAT_ROWS - 2);
+      // For pounce: pick a target column (bias toward active piece if present)
+      if (cat.attack === 'pounce' && game.current) {
+        cat.targetCol = game.current.col + Math.floor(Math.random() * 3) - 1;
+        cat.targetCol = Math.max(0, Math.min(COLS - 1, cat.targetCol));
+      } else {
+        cat.targetCol = Math.floor(Math.random() * COLS);
+      }
+      // For lurk: pick a side
+      if (cat.attack === 'lurk') {
+        cat.lurkSide = Math.random() < 0.5 ? -1 : 1; // -1 = left, 1 = right
+      }
+      sfxCatHiss();
+    }
+  } else if (cat.phase === 'warning') {
+    cat.timer += dt;
+    if (cat.timer >= CAT_WARNING_TIME) {
+      cat.phase = 'prowl';
+      cat.timer = 0;
+      if (cat.attack === 'pounce') sfxCatPounce();
+      if (cat.attack === 'lurk') sfxCatGrowl();
+    }
+  } else if (cat.phase === 'prowl') {
+    cat.timer += dt;
+
+    if (cat.attack === 'cross') {
+      updateCatCross(dt, cat);
+    } else if (cat.attack === 'pounce') {
+      updateCatPounce(dt, cat);
+    } else if (cat.attack === 'lurk') {
+      updateCatLurk(dt, cat);
+    }
+  } else if (cat.phase === 'cooldown') {
+    cat.timer += dt;
+    if (cat.timer >= 500) {
+      cat.phase = 'idle';
+      cat.timer = 0;
+      const levelFactor = Math.max(0.5, 1 - game.level * 0.04);
+      cat.nextAppear = (CAT_MIN_INTERVAL + Math.random() * (CAT_MAX_INTERVAL - CAT_MIN_INTERVAL)) * levelFactor;
+    }
+  }
+}
+
+// CROSS: cat dashes across board with ease-in-out speed and variable height
+function updateCatCross(dt, cat) {
+  const progress = cat.timer / CAT_PROWL_TIME;
+  // Ease-in-out cubic for non-linear speed
+  const eased = progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+  const catCol = cat.direction === 1
+    ? Math.floor(eased * (COLS + 2)) - 1
+    : COLS - Math.floor(eased * (COLS + 2));
+  cat.catCol = catCol;
+  cat.catRow = cat.prowlRow;
+
+  catTryBat(cat, catCol, cat.prowlRow);
+
+  if (cat.timer >= CAT_PROWL_TIME) {
+    cat.phase = 'cooldown';
+    cat.timer = 0;
+  }
+}
+
+// POUNCE: cat leaps from above to a target column, lands with shockwave
+function updateCatPounce(dt, cat) {
+  const totalTime = CAT_POUNCE_TIME;
+  const progress = Math.min(cat.timer / totalTime, 1);
+  // Quick drop: ease-in quadratic (accelerating downward)
+  const dropCurve = progress * progress;
+  // Start above board, land at prowlRow
+  cat.catCol = cat.targetCol;
+  cat.catRow = -3 + (cat.prowlRow + 3) * dropCurve;
+
+  // Bat on impact (last 20% of animation)
+  if (progress > 0.8) {
+    catTryBat(cat, cat.targetCol, cat.prowlRow);
+  }
+
+  // Shockwave at landing
+  if (progress >= 0.95 && !cat.pounceImpact) {
+    cat.pounceImpact = true;
+    game.screenFlash = 200;
+    sfxCatPounce();
+    // Shake effect — bat anything nearby with wider range
+    if (game.current && game.state === 'playing' && !game.scurry) {
+      const p = game.current;
+      const cells = getCells(p.type, p.rot);
+      for (const [cr, cc] of cells) {
+        const pr = p.row + cr;
+        if (pr < CAT_ROWS && Math.abs(p.col + cc - cat.targetCol) <= CAT_SWIPE_RANGE + 1) {
+          // Pounce bats in random direction
+          const batDir = Math.random() < 0.5 ? 1 : -1;
+          let moved = 0;
+          for (let i = 0; i < CAT_BAT_FORCE + 1; i++) {
+            if (isValid(p.type, p.rot, p.row, p.col + batDir)) {
+              p.col += batDir;
+              moved++;
+            }
+          }
+          if (moved > 0) {
+            cat.batted = true;
+            updateGhost();
+            sfxCatSwipe();
+            game.cheeseEffects.push({
+              kind: 'text',
+              text: '🐱 POUNCE!',
+              col: p.col + 1, row: Math.max(0, p.row - 1),
+              timer: 0, duration: 900,
+              color: '#ff4040',
+              big: true,
+            });
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  if (cat.timer >= totalTime + 400) { // linger 400ms after landing
+    cat.phase = 'cooldown';
+    cat.timer = 0;
+    cat.pounceImpact = false;
+  }
+}
+
+// LURK: cat sits at one edge and swipes repeatedly at pieces in range
+function updateCatLurk(dt, cat) {
+  const totalTime = CAT_LURK_TIME;
+  const progress = Math.min(cat.timer / totalTime, 1);
+
+  // Cat sits at edge, slight bobbing
+  const bob = Math.sin(cat.timer / 200) * 0.3;
+  cat.catCol = cat.lurkSide === -1 ? -1 : COLS;
+  cat.catRow = cat.prowlRow + bob;
+
+  // Repeated swipe attempts every 500ms
+  if (game.current && game.state === 'playing' && !game.scurry) {
+    if (!cat.batCooldown || cat.batCooldown <= 0) {
+      const p = game.current;
+      const cells = getCells(p.type, p.rot);
+      const edgeCol = cat.lurkSide === -1 ? 0 : COLS - 1;
+      let shouldBat = false;
+      for (const [cr, cc] of cells) {
+        const pr = p.row + cr;
+        const pc = p.col + cc;
+        // Swipe range extends from edge into the board
+        if (pr < CAT_ROWS && Math.abs(pc - edgeCol) <= CAT_SWIPE_RANGE) {
+          shouldBat = true;
+          break;
+        }
+      }
+      if (shouldBat) {
+        // Lurk bats pieces away from the edge
+        const batDir = -cat.lurkSide;
+        let moved = 0;
+        for (let i = 0; i < CAT_BAT_FORCE; i++) {
+          if (isValid(p.type, p.rot, p.row, p.col + batDir)) {
+            p.col += batDir;
+            moved++;
+          }
+        }
+        if (moved > 0) {
+          cat.batted = true;
+          cat.lurkSwipes++;
+          cat.batCooldown = 500;
+          updateGhost();
+          sfxCatSwipe();
+          game.screenFlash = 120;
+          const label = cat.lurkSwipes > 1 ? `🐱 SWAT x${cat.lurkSwipes}!` : '🐱 SWAT!';
+          game.cheeseEffects.push({
+            kind: 'text',
+            text: label,
+            col: p.col + 1, row: Math.max(0, p.row - 1),
+            timer: 0, duration: 700,
+            color: '#ff6060',
+            big: true,
+          });
+        }
+      }
+    } else {
+      cat.batCooldown -= dt;
+    }
+  }
+
+  if (cat.timer >= totalTime) {
+    cat.phase = 'cooldown';
+    cat.timer = 0;
+  }
+}
+
+// Shared bat logic for cross attack
+function catTryBat(cat, catCol, catRow) {
+  if (!game.current || game.state !== 'playing' || game.scurry) return;
+  if (cat.batCooldown && cat.batCooldown > 0) { cat.batCooldown -= 16; return; }
+  const p = game.current;
+  const cells = getCells(p.type, p.rot);
+  let shouldBat = false;
+  for (const [cr, cc] of cells) {
+    const pr = p.row + cr;
+    const pc = p.col + cc;
+    if (pr < CAT_ROWS && Math.abs(pc - catCol) <= CAT_SWIPE_RANGE) {
+      shouldBat = true;
+      break;
+    }
+  }
+  if (shouldBat) {
+    const batDir = cat.direction;
+    let moved = 0;
+    for (let i = 0; i < CAT_BAT_FORCE; i++) {
+      if (isValid(p.type, p.rot, p.row, p.col + batDir)) {
+        p.col += batDir;
+        moved++;
+      }
+    }
+    if (moved > 0) {
+      cat.batted = true;
+      cat.batCooldown = 400;
+      updateGhost();
+      sfxCatSwipe();
+      game.screenFlash = 150;
+      game.cheeseEffects.push({
+        kind: 'text',
+        text: '🐱 SWAT!',
+        col: p.col + 1, row: Math.max(0, p.row - 1),
+        timer: 0, duration: 800,
+        color: '#ff6060',
+        big: true,
+      });
+    }
+  }
+}
+
+function update(dt) {
+  if (!game || screen !== 'game') return;
+  if (game.state === 'paused' || game.state === 'gameover') return;
+
+  // Cheese effects always tick (even during clearing/scurry)
+  for (let i = game.cheeseEffects.length - 1; i >= 0; i--) {
+    game.cheeseEffects[i].timer += dt;
+    if (game.cheeseEffects[i].timer >= game.cheeseEffects[i].duration) {
+      game.cheeseEffects.splice(i, 1);
+    }
+  }
+  if (game.hoardBump > 0) game.hoardBump = Math.max(0, game.hoardBump - dt);
+  if (game.screenFlash > 0) game.screenFlash = Math.max(0, game.screenFlash - dt);
+  // Cat idle timer ticks even during clearing (real-time schedule)
+  if (game.cat.phase === 'idle') game.cat.timer += dt;
+
+  if (game.state === 'clearing') {
+    updateClearing(dt);
+    return;
+  }
+
+  if (game.state === 'cluster_clearing') {
+    updateClusterClearing(dt);
+    return;
+  }
+
+  // Scurry animation — block input/gravity while piece slides in
+  if (game.scurry) {
+    game.scurry.timer += dt;
+    if (game.scurry.timer >= game.scurry.duration) {
+      game.scurry = null;
+    }
+    return;
+  }
+
+  // Cheese decay
+  for (let i = game.cheese.length - 1; i >= 0; i--) {
+    game.cheese[i].freshness -= dt;
+    if (game.cheese[i].freshness <= 0) {
+      const ch = game.cheese[i];
+      const reachable = !game.grid[ch.row][ch.col];
+      if (reachable) {
+        // Blocker cell + score penalty
+        game.grid[ch.row][ch.col] = { type: 'blocker', fur: null, color: '#4a4a3a' };
+        game.score = Math.max(0, game.score - 50);
+        game.cheeseEffects.push({
+          kind: 'text',
+          text: '-50',
+          col: ch.col, row: ch.row,
+          timer: 0, duration: 900,
+          color: COLORS.danger,
+          big: true,
+        });
+      }
+      game.cheese.splice(i, 1);
+      sfxCheeseSpoil();
+    }
+  }
+
+  // DAS (auto-repeat)
+  if (game.dasDir !== 0) {
+    game.dasTimer += dt;
+    if (!game.dasActive && game.dasTimer >= DAS_INITIAL) {
+      game.dasActive = true;
+      game.dasTimer = 0;
+    }
+    if (game.dasActive && game.dasTimer >= DAS_REPEAT) {
+      tryMove(0, game.dasDir);
+      game.dasTimer = 0;
+    }
+  }
+
+  // Gravity
+  const gravityMs = GRAVITY_TABLE[Math.min(game.level, GRAVITY_TABLE.length - 1)];
+  const effectiveGravity = game.softDrop ? Math.min(gravityMs, 50) : gravityMs;
+  game.gravityTimer += dt;
+  if (game.gravityTimer >= effectiveGravity) {
+    game.gravityTimer = 0;
+    if (!tryMove(1, 0)) {
+      // Piece can't move down — start or continue lock timer
+      if (game.lockTimer < 0) game.lockTimer = 0;
+    } else {
+      if (game.softDrop) game.score += 1;
+      game.lockTimer = -1; // Reset lock timer if piece moved down
+    }
+  }
+
+  // Lock timer
+  if (game.lockTimer >= 0) {
+    game.lockTimer += dt;
+    if (game.lockTimer >= LOCK_DELAY) {
+      // Confirm piece still can't move down
+      if (!isValid(game.current.type, game.current.rot, game.current.row + 1, game.current.col)) {
+        lockPiece();
+      } else {
+        game.lockTimer = -1;
+      }
+    }
+  }
+
+  // Cat prowl
+  updateCat(dt);
+
+  // Danger heartbeat
+  const highest = getHighestOccupiedRow();
+  if (highest < 4) {
+    game.dangerTimer += dt;
+    const interval = 400 - (4 - highest) * 80;
+    if (game.dangerTimer > interval) {
+      game.dangerTimer = 0;
+      sfxDangerTick((4 - highest) / 4);
+    }
+  }
+}
+
+function drawCat() {
+  if (!game || !game.cat) return;
+  const cat = game.cat;
+  if (cat.phase === 'idle' || cat.phase === 'cooldown') return;
+
+  const s = canvasScale;
+  const pw = COLS * CELL * s;
+
+  if (cat.phase === 'warning') {
+    const pulse = 0.5 + Math.sin(cat.timer / 100) * 0.5;
+
+    // Warning position depends on attack type
+    let eyeX, eyeY;
+    if (cat.attack === 'pounce') {
+      // Eyes above target column
+      eyeX = playX + (cat.targetCol + 0.5) * CELL * s;
+      eyeY = playY - 18 * s;
+    } else if (cat.attack === 'lurk') {
+      // Eyes at lurk side
+      eyeX = cat.lurkSide === -1 ? playX - 12 * s : playX + pw + 12 * s;
+      eyeY = playY + CELL * s * cat.prowlRow;
+    } else {
+      // Cross: eyes at entry side
+      eyeX = cat.direction === 1 ? playX - 12 * s : playX + pw + 12 * s;
+      eyeY = playY + CELL * s * cat.prowlRow;
+    }
+    const eyeR = 5 * s;
+    const gap = 10 * s;
+
+    // Large orange glow behind eyes
+    ctx.globalAlpha = pulse * 0.25;
+    ctx.fillStyle = '#ff8030';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, eyeR * 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye glow halos
+    ctx.globalAlpha = pulse * 0.4;
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY - gap / 2, eyeR * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY + gap / 2, eyeR * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.globalAlpha = 0.7 + pulse * 0.3;
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.ellipse(eyeX, eyeY - gap / 2, eyeR * 1.3, eyeR * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(eyeX, eyeY + gap / 2, eyeR * 1.3, eyeR * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Pupils
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(eyeX, eyeY - gap / 2, eyeR * 0.25, eyeR * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(eyeX, eyeY + gap / 2, eyeR * 0.25, eyeR * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Danger zone tint
+    ctx.fillStyle = `rgba(255,100,50,${0.05 + pulse * 0.08})`;
+    if (cat.attack === 'pounce') {
+      // Vertical column highlight for pounce
+      const colX = playX + cat.targetCol * CELL * s;
+      ctx.fillRect(colX - CELL * s, playY, CELL * s * 3, CAT_ROWS * CELL * s);
+    } else {
+      ctx.fillRect(playX, playY, pw, CAT_ROWS * CELL * s);
+    }
+    // Danger zone border
+    ctx.strokeStyle = `rgba(255,100,50,${0.2 + pulse * 0.3})`;
+    ctx.lineWidth = 2 * s;
+    ctx.setLineDash([6 * s, 4 * s]);
+    ctx.strokeRect(playX, playY + CAT_ROWS * CELL * s - 1, pw, 0);
+    ctx.setLineDash([]);
+  }
+
+  if (cat.phase === 'prowl') {
+    if (cat.attack === 'cross') {
+      drawCatCross(cat, s, pw);
+    } else if (cat.attack === 'pounce') {
+      drawCatPounce(cat, s, pw);
+    } else if (cat.attack === 'lurk') {
+      drawCatLurk(cat, s, pw);
+    }
+  }
+}
+
+// Shared cat body drawing helper
+function drawCatBody(catX, catY, catW, catH, facingRight, cat, s) {
+  ctx.save();
+  if (!facingRight) {
+    ctx.translate(catX, catY);
+    ctx.scale(-1, 1);
+    ctx.translate(-catX, -catY);
+  }
+
+  // Orange glow aura
+  const glowR = catW * 0.7;
+  const glowGrad = ctx.createRadialGradient(catX, catY, glowR * 0.2, catX, catY, glowR);
+  glowGrad.addColorStop(0, 'rgba(255,140,40,0.3)');
+  glowGrad.addColorStop(0.5, 'rgba(255,100,30,0.12)');
+  glowGrad.addColorStop(1, 'rgba(255,80,20,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.fillRect(catX - glowR, catY - glowR, glowR * 2, glowR * 2);
+
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = '#1a1015';
+
+  // Body
+  ctx.beginPath();
+  ctx.ellipse(catX, catY, catW * 0.48, catH * 0.32, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,140,50,0.4)';
+  ctx.lineWidth = 2 * s;
+  ctx.stroke();
+
+  // Head
+  const headX = catX + catW * 0.32;
+  const headY = catY - catH * 0.15;
+  const headR = catH * 0.28;
+  ctx.fillStyle = '#1a1015';
+  ctx.beginPath();
+  ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,140,50,0.35)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.stroke();
+
+  // Ears
+  ctx.fillStyle = '#1a1015';
+  ctx.beginPath();
+  ctx.moveTo(headX - headR * 0.6, headY - headR * 0.7);
+  ctx.lineTo(headX - headR * 0.15, headY - headR * 1.4);
+  ctx.lineTo(headX + headR * 0.15, headY - headR * 0.65);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(headX + headR * 0.15, headY - headR * 0.75);
+  ctx.lineTo(headX + headR * 0.55, headY - headR * 1.35);
+  ctx.lineTo(headX + headR * 0.7, headY - headR * 0.5);
+  ctx.fill();
+
+  // Tail
+  ctx.strokeStyle = '#1a1015';
+  ctx.lineWidth = 5 * s;
+  ctx.lineCap = 'round';
+  const tailX = catX - catW * 0.42;
+  ctx.beginPath();
+  ctx.moveTo(tailX, catY);
+  ctx.quadraticCurveTo(tailX - catW * 0.3, catY - catH * 0.65, tailX - catW * 0.08, catY - catH * 0.55);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,140,50,0.3)';
+  ctx.lineWidth = 2 * s;
+  ctx.stroke();
+
+  // Eyes
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#ffcc00';
+  const eyePulse = 0.8 + Math.sin(Date.now() / 80) * 0.2;
+  ctx.globalAlpha = 0.3 * eyePulse;
+  ctx.beginPath();
+  ctx.arc(headX - headR * 0.25, headY - headR * 0.05, headR * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(headX + headR * 0.25, headY - headR * 0.05, headR * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = '#ffcc00';
+  ctx.beginPath();
+  ctx.ellipse(headX - headR * 0.25, headY - headR * 0.05, headR * 0.22, headR * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(headX + headR * 0.25, headY - headR * 0.05, headR * 0.22, headR * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(headX - headR * 0.25, headY - headR * 0.05, headR * 0.06, headR * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(headX + headR * 0.25, headY - headR * 0.05, headR * 0.06, headR * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Paw on bat
+  if (cat.batted) {
+    ctx.fillStyle = '#1a1015';
+    ctx.globalAlpha = 0.85;
+    const pawX = headX + headR * 0.5;
+    const pawY = headY + headR * 0.7;
+    ctx.beginPath();
+    ctx.ellipse(pawX + headR * 0.4, pawY, headR * 0.4, headR * 0.18, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,140,50,0.4)';
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+    // Claw marks
+    ctx.strokeStyle = '#ff6060';
+    ctx.lineWidth = 2 * s;
+    ctx.globalAlpha = 0.7;
+    for (let i = 0; i < 3; i++) {
+      const cx = pawX + headR * 0.6 + i * 3.5 * s;
+      ctx.beginPath();
+      ctx.moveTo(cx, pawY - headR * 0.25);
+      ctx.lineTo(cx + 2.5 * s, pawY + headR * 0.35);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+// CROSS drawing — cat dashes across at variable row
+function drawCatCross(cat, s, pw) {
+  const progress = Math.min(cat.timer / CAT_PROWL_TIME, 1);
+  const eased = progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+  const catX = cat.direction === 1
+    ? playX - 30 * s + eased * (pw + 60 * s)
+    : playX + pw + 30 * s - eased * (pw + 60 * s);
+  const catY = playY + CELL * s * cat.prowlRow;
+  const catW = CELL * s * 3;
+  const catH = CELL * s * 2.5;
+
+  // Motion blur trail
+  ctx.globalAlpha = 0.15;
+  const trailOff = cat.direction === 1 ? -catW * 0.6 : catW * 0.6;
+  ctx.fillStyle = 'rgba(255,100,40,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(catX + trailOff, catY, catW * 0.4, catH * 0.25, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  drawCatBody(catX, catY, catW, catH, cat.direction === 1, cat, s);
+
+  // Danger zone tint
+  const prowlFade = progress < 0.5 ? 1 : 1 - (progress - 0.5) * 2;
+  ctx.fillStyle = `rgba(255,100,50,${0.1 * prowlFade})`;
+  ctx.fillRect(playX, playY, pw, CAT_ROWS * CELL * s);
+}
+
+// POUNCE drawing — cat drops from above onto target column
+function drawCatPounce(cat, s, pw) {
+  const totalTime = CAT_POUNCE_TIME;
+  const progress = Math.min(cat.timer / totalTime, 1);
+  const dropCurve = progress * progress;
+  const catX = playX + (cat.targetCol + 0.5) * CELL * s;
+  const startY = playY - CELL * s * 3;
+  const endY = playY + CELL * s * cat.prowlRow;
+  const catY = startY + (endY - startY) * dropCurve;
+  const catW = CELL * s * 3;
+  const catH = CELL * s * 2.5;
+
+  // Vertical speed lines during descent
+  if (progress < 0.9) {
+    ctx.save();
+    ctx.globalAlpha = 0.2 + progress * 0.3;
+    ctx.strokeStyle = '#ff8040';
+    ctx.lineWidth = 2 * s;
+    for (let i = -1; i <= 1; i++) {
+      const lx = catX + i * CELL * s * 0.8;
+      const lineLen = CELL * s * (1 + progress * 2);
+      ctx.beginPath();
+      ctx.moveTo(lx, catY - catH * 0.4 - lineLen);
+      ctx.lineTo(lx, catY - catH * 0.4);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Impact shockwave ring on landing
+  if (progress >= 0.9) {
+    const impactT = (progress - 0.9) / 0.1;
+    const ringR = CELL * s * (1 + impactT * 3);
+    ctx.save();
+    ctx.globalAlpha = 0.5 * (1 - impactT);
+    ctx.strokeStyle = '#ff6040';
+    ctx.lineWidth = 3 * s;
+    ctx.beginPath();
+    ctx.arc(catX, endY, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Second ring
+    ctx.globalAlpha = 0.3 * (1 - impactT);
+    ctx.beginPath();
+    ctx.arc(catX, endY, ringR * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Cat body — rotated slightly during dive, flattens on impact
+  ctx.save();
+  if (progress < 0.9) {
+    // Diving — slight tilt and stretch
+    const stretch = 1 + progress * 0.3;
+    ctx.translate(catX, catY);
+    ctx.scale(1 / stretch, stretch);
+    ctx.translate(-catX, -catY);
+  }
+  drawCatBody(catX, catY, catW, catH, true, cat, s);
+  ctx.restore();
+
+  // Linger effect: screen-wide orange pulse on impact
+  if (cat.timer > totalTime && cat.timer < totalTime + 400) {
+    const fade = 1 - (cat.timer - totalTime) / 400;
+    ctx.fillStyle = `rgba(255,100,50,${0.12 * fade})`;
+    ctx.fillRect(playX, playY, pw, CAT_ROWS * CELL * s);
+  }
+}
+
+// LURK drawing — cat sits at edge, tail flicking, swipes repeatedly
+function drawCatLurk(cat, s, pw) {
+  const progress = Math.min(cat.timer / CAT_LURK_TIME, 1);
+  const bob = Math.sin(cat.timer / 200) * 0.3;
+  const catX = cat.lurkSide === -1
+    ? playX - CELL * s * 0.8
+    : playX + pw + CELL * s * 0.8;
+  const catY = playY + CELL * s * (cat.prowlRow + bob);
+  const catW = CELL * s * 3;
+  const catH = CELL * s * 2.5;
+
+  // Animated tail flick (sinusoidal)
+  const tailFlick = Math.sin(cat.timer / 150) * 0.4;
+
+  // Creeping paw animation when about to swipe
+  const swipeReady = (!cat.batCooldown || cat.batCooldown <= 100);
+  if (swipeReady && game.current) {
+    const p = game.current;
+    const edgeCol = cat.lurkSide === -1 ? 0 : COLS - 1;
+    const cells = getCells(p.type, p.rot);
+    let nearEdge = false;
+    for (const [cr, cc] of cells) {
+      if (Math.abs(p.col + cc - edgeCol) <= CAT_SWIPE_RANGE) { nearEdge = true; break; }
+    }
+    if (nearEdge) {
+      // Extending paw toward board
+      const pawDir = -cat.lurkSide;
+      const pawExtend = CELL * s * (1.2 + Math.sin(cat.timer / 100) * 0.3);
+      ctx.save();
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = '#1a1015';
+      ctx.beginPath();
+      ctx.ellipse(catX + pawDir * pawExtend, catY + CELL * s * 0.3, CELL * s * 0.35, CELL * s * 0.18, pawDir * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      // Claw glint
+      ctx.strokeStyle = '#ff6060';
+      ctx.lineWidth = 2 * s;
+      ctx.globalAlpha = 0.5 + Math.sin(cat.timer / 60) * 0.3;
+      for (let i = 0; i < 3; i++) {
+        const cx = catX + pawDir * (pawExtend + CELL * s * 0.2) + i * 3 * s * pawDir;
+        ctx.beginPath();
+        ctx.moveTo(cx, catY + CELL * s * 0.15);
+        ctx.lineTo(cx + pawDir * 3 * s, catY + CELL * s * 0.45);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Draw body facing inward
+  const facingRight = cat.lurkSide === -1;
+  drawCatBody(catX, catY, catW, catH, facingRight, cat, s);
+
+  // Extra animated tail on top (overrides body tail with flick)
+  ctx.save();
+  if (!facingRight) {
+    ctx.translate(catX, catY);
+    ctx.scale(-1, 1);
+    ctx.translate(-catX, -catY);
+  }
+  ctx.strokeStyle = '#1a1015';
+  ctx.lineWidth = 5 * s;
+  ctx.lineCap = 'round';
+  const tailX = catX - catW * 0.42;
+  ctx.beginPath();
+  ctx.moveTo(tailX, catY);
+  ctx.quadraticCurveTo(
+    tailX - catW * 0.3 + Math.sin(tailFlick) * catW * 0.2,
+    catY - catH * 0.65,
+    tailX - catW * 0.08 + Math.cos(tailFlick) * catW * 0.15,
+    catY - catH * 0.55
+  );
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,140,50,0.3)';
+  ctx.lineWidth = 2 * s;
+  ctx.stroke();
+  ctx.restore();
+
+  // Edge glow showing lurk zone
+  const edgeAlpha = 0.08 + Math.sin(cat.timer / 300) * 0.04;
+  const edgeGrad = ctx.createLinearGradient(
+    cat.lurkSide === -1 ? playX : playX + pw,
+    0,
+    cat.lurkSide === -1 ? playX + CAT_SWIPE_RANGE * CELL * s : playX + pw - CAT_SWIPE_RANGE * CELL * s,
+    0
+  );
+  edgeGrad.addColorStop(0, `rgba(255,100,50,${edgeAlpha * 3})`);
+  edgeGrad.addColorStop(1, 'rgba(255,100,50,0)');
+  ctx.fillStyle = edgeGrad;
+  ctx.fillRect(playX, playY, pw, CAT_ROWS * CELL * s);
+
+  // Swipe count indicator
+  if (cat.lurkSwipes > 0) {
+    ctx.fillStyle = '#ff6060';
+    ctx.globalAlpha = 0.8;
+    ctx.font = `bold ${10 * s}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`×${cat.lurkSwipes}`, catX, catY - catH * 0.5);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function draw(dt) {
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  if (screen === 'title') {
+    drawTitleScreen(dt);
+    return;
+  }
+
+  // Game background
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  drawPlayfield();
+  drawCat();
+  drawCurrentPiece();
+  drawCheeseEffects();
+  drawHUD();
+
+  if (game.state === 'paused') drawPauseOverlay();
+  if (game.state === 'gameover') drawGameOver();
+}
+
+function gameLoop(time) {
+  const dt = lastTime ? time - lastTime : 16;
+  lastTime = time;
+  update(dt);
+  draw(dt);
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
