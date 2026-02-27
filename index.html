@@ -22,8 +22,7 @@ canvas {
 }
 #gameCanvas {
   position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  top: 0; left: 0;
 }
 </style>
 </head>
@@ -1295,22 +1294,22 @@ let playX = 0, playY = 0; // top-left of playfield in canvas coords
 function resizeCanvas() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  // Playfield = COLS*CELL wide, ROWS*CELL tall + HUD space
-  const sidePanel = 6 * CELL; // next/hold panel
-  const totalW = COLS * CELL + sidePanel + CELL * 2; // margins
-  const totalH = ROWS * CELL + CELL * 4; // top/bottom HUD
-  const scale = Math.min(vw / totalW, vh / totalH, 2);
+  // Board-dominant layout: playfield + minimal margins, no side panel
+  const totalW = COLS * CELL + CELL * 2; // just playfield + small margins
+  const totalH = ROWS * CELL + CELL * 2.5; // playfield + top HUD bar + bottom hint
+  const scale = Math.min(vw / totalW, vh / totalH, 2.5);
   canvasScale = scale;
-  canvasW = Math.floor(totalW * scale);
-  canvasH = Math.floor(totalH * scale);
+  canvasW = Math.floor(vw); // use full viewport width
+  canvasH = Math.floor(vh); // use full viewport height
   canvas.width = canvasW;
   canvas.height = canvasH;
   canvas.style.width = canvasW + 'px';
   canvas.style.height = canvasH + 'px';
 
-  // Playfield position
-  playX = Math.floor(CELL * scale);
-  playY = Math.floor(CELL * 2.5 * scale);
+  // Center playfield horizontally, push toward top
+  const pfW = COLS * CELL * scale;
+  playX = Math.floor((canvasW - pfW) / 2);
+  playY = Math.floor(CELL * 1.8 * scale);
 }
 
 function drawCell(col, row, color, alpha = 1) {
@@ -2051,27 +2050,24 @@ function drawCurrentPiece() {
 
 function drawPreviewPiece(piece, cx, cy, cellSize, label) {
   const s = canvasScale;
-  // Label
-  ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${10 * s}px 'Segoe UI', sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText(label, cx, cy - cellSize * 2.5);
-
-  // Box
-  const boxW = cellSize * 4.5;
-  const boxH = cellSize * 4.5;
+  // Compact inline box
+  const boxSize = cellSize * 3.2;
   ctx.fillStyle = 'rgba(13,9,6,0.5)';
   ctx.strokeStyle = COLORS.frame;
-  ctx.lineWidth = 2 * s;
-  ctx.fillRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
-  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  ctx.lineWidth = 1.5 * s;
+  ctx.fillRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
+  ctx.strokeRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
+
+  // Label above box
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, cx, cy - boxSize / 2 - 3 * s);
 
   if (!piece) return;
-  const pDef = PIECES[piece.type || piece];
   const type = piece.type || piece;
   const rot = piece.rot || 0;
   const cells = getCells(type, rot);
-  // Center the piece in the box
   let minR = 9, maxR = 0, minC = 9, maxC = 0;
   for (const [cr, cc] of cells) {
     minR = Math.min(minR, cr); maxR = Math.max(maxR, cr);
@@ -2082,16 +2078,16 @@ function drawPreviewPiece(piece, cx, cy, cellSize, label) {
   const ox = cx - pw / 2 - minC * cellSize;
   const oy = cy - ph / 2 - minR * cellSize;
 
-  // Color indicator: tinted background stripe + colored border for cluster color
+  // Color indicator border
   const pieceColor = PIECE_COLORS[type];
   ctx.save();
   ctx.globalAlpha = 0.15;
   ctx.fillStyle = pieceColor;
-  ctx.fillRect(cx - boxW / 2 + 2, cy - boxH / 2 + 2, boxW - 4, boxH - 4);
+  ctx.fillRect(cx - boxSize / 2 + 1, cy - boxSize / 2 + 1, boxSize - 2, boxSize - 2);
   ctx.globalAlpha = 1;
   ctx.strokeStyle = pieceColor;
-  ctx.lineWidth = 2.5 * s;
-  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  ctx.lineWidth = 2 * s;
+  ctx.strokeRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
   ctx.restore();
 
   drawPieceMouse({ type, rot }, ox, oy, cellSize);
@@ -2100,48 +2096,47 @@ function drawPreviewPiece(piece, cx, cy, cellSize, label) {
 function drawHUD() {
   const s = canvasScale;
   const pw = COLS * CELL * s;
+  const hudY = playY - 8 * s; // just above playfield
 
-  // Score
+  // Score (left-aligned)
   ctx.fillStyle = COLORS.text;
-  ctx.font = `bold ${14 * s}px 'Segoe UI', sans-serif`;
+  ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'left';
-  ctx.fillText(`Score: ${game.score}`, playX, playY - 14 * s);
+  ctx.fillText(`Score: ${game.score}`, playX, hudY);
 
-  // Cheese hoard (with bump animation)
+  // Level + Lines (right-aligned)
+  ctx.textAlign = 'right';
+  ctx.fillText(`Lv${game.level + 1} · ${game.lines}L`, playX + pw, hudY);
+
+  // Cheese hoard (center)
   ctx.textAlign = 'center';
   ctx.fillStyle = COLORS.accent;
   if (game.hoardBump > 0) {
     const bump = game.hoardBump / 300;
-    const scale = 1 + bump * 0.35;
+    const bScale = 1 + bump * 0.35;
     const hx = playX + pw / 2;
-    const hy = playY - 14 * s;
     ctx.save();
-    ctx.translate(hx, hy);
-    ctx.scale(scale, scale);
+    ctx.translate(hx, hudY);
+    ctx.scale(bScale, bScale);
     ctx.fillText(`🧀 ${game.cheeseHoard}`, 0, 0);
     ctx.restore();
   } else {
-    ctx.fillText(`🧀 ${game.cheeseHoard}`, playX + pw / 2, playY - 14 * s);
+    ctx.fillText(`🧀 ${game.cheeseHoard}`, playX + pw / 2, hudY);
   }
 
-  // Level + Lines
-  ctx.textAlign = 'right';
-  ctx.fillStyle = COLORS.text;
-  ctx.fillText(`Lv${game.level + 1} · ${game.lines}L`, playX + pw, playY - 14 * s);
+  // NEXT and HOLD previews — inline, below the playfield
+  const previewSize = PREVIEW_CELL * s * 0.85;
+  const bottomY = playY + ROWS * CELL * s;
+  const previewY = bottomY + CELL * s * 0.9;
+  drawPreviewPiece(game.next, playX + pw * 0.25, previewY, previewSize, 'NEXT');
+  drawPreviewPiece(game.held, playX + pw * 0.75, previewY, previewSize, 'HOLD');
 
-  // Side panel — next + hold
-  const panelX = playX + pw + CELL * s * 1.5;
-  const previewSize = PREVIEW_CELL * s;
-
-  drawPreviewPiece(game.next, panelX, playY + CELL * s * 3, previewSize, 'NEXT');
-  drawPreviewPiece(game.held, panelX, playY + CELL * s * 8, previewSize, 'HOLD');
-
-  // Combo indicator
+  // Combo indicator (overlaid on bottom of playfield)
   if (game.combo > 1) {
     ctx.fillStyle = COLORS.accent;
     ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(`${game.combo}x COMBO!`, playX + pw / 2, playY + (ROWS * CELL + 18) * s);
+    ctx.fillText(`${game.combo}x COMBO!`, playX + pw / 2, bottomY - 6 * s);
   }
 
   // Danger indicator
@@ -2152,12 +2147,11 @@ function drawHUD() {
     ctx.fillRect(playX, playY, pw, ROWS * CELL * s);
   }
 
-  // Touch hints (bottom)
+  // Touch hints (compact, below previews)
   ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${8 * s}px 'Segoe UI', sans-serif`;
+  ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  const hintY = playY + (ROWS * CELL + 30) * s;
-  ctx.fillText('← swipe → | tap: rotate | ↓ swipe: drop', playX + pw / 2, hintY);
+  ctx.fillText('← swipe → | tap: rotate | ↓ drop', playX + pw / 2, previewY + CELL * s * 1.6);
 }
 
 function getHighestOccupiedRow() {
@@ -2290,8 +2284,23 @@ function drawGameOver() {
 // ============================================================
 let lastTime = 0;
 
+function requestFullscreen() {
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (rfs) {
+    rfs.call(el).then(() => {
+      // Re-layout after fullscreen change
+      setTimeout(resizeCanvas, 100);
+    }).catch(() => {});
+  }
+}
+
 function startGame() {
   initAudio();
+  // Request fullscreen on mobile devices
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    requestFullscreen();
+  }
   newGame();
   screen = 'game';
   if (musicEnabled) startMusic();
@@ -3111,6 +3120,8 @@ function gameLoop(time) {
 //  INIT
 // ============================================================
 window.addEventListener('resize', resizeCanvas);
+document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 100));
+document.addEventListener('webkitfullscreenchange', () => setTimeout(resizeCanvas, 100));
 resizeCanvas();
 requestAnimationFrame(gameLoop);
 
