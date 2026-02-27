@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Mousetris</title>
+<title>Mousetrix</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -1122,7 +1122,7 @@ function updateClusterClearing(dt) {
 // ============================================================
 function loadHighScores() {
   try {
-    return JSON.parse(localStorage.getItem('mousetris_scores') || '[]').slice(0, 5);
+    return JSON.parse(localStorage.getItem('mousetrix_scores') || '[]').slice(0, 5);
   } catch { return []; }
 }
 
@@ -1131,7 +1131,7 @@ function saveHighScore(score) {
   scores.push(score);
   scores.sort((a,b) => b - a);
   game.highScores = scores.slice(0, 5);
-  localStorage.setItem('mousetris_scores', JSON.stringify(game.highScores));
+  localStorage.setItem('mousetrix_scores', JSON.stringify(game.highScores));
 }
 
 // ============================================================
@@ -2193,7 +2193,7 @@ function drawTitleScreen(dt) {
   ctx.fillStyle = COLORS.text;
   ctx.font = `bold ${36 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('🐭 MOUSETRIS', w / 2, h * 0.25);
+  ctx.fillText('🐭 MOUSETRIX', w / 2, h * 0.25);
 
   // Subtitle
   ctx.fillStyle = COLORS.textDim;
