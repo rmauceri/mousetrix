@@ -1428,7 +1428,11 @@ canvas.addEventListener('touchend', e => {
   // About screen: handle close button tap or scroll
   if (screen === 'about') {
     const touch = e.changedTouches[0];
-    if (!touchMoved) {
+    // Use distance threshold — small movements are still a "tap"
+    const dx = Math.abs(touch.clientX - touchStartX);
+    const dy = Math.abs(touch.clientY - touchStartY);
+    const wasTap = (dx < 15 && dy < 15);
+    if (wasTap) {
       // Check if tapped the close button
       const rect = canvas.getBoundingClientRect();
       const relY = (touch.clientY - rect.top) / rect.height;
