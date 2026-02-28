@@ -1110,9 +1110,11 @@ function updateClearing(dt) {
     // Remove cheese in cleared rows (lost, not collected)
     const clearedSet = new Set(game.clearRows);
     game.cheese = game.cheese.filter(ch => !clearedSet.has(ch.row));
-    // Collapse rows
+    // Collapse rows — splice all first (descending), then prepend empty rows
     for (const row of game.clearRows.sort((a,b) => b - a)) {
       game.grid.splice(row, 1);
+    }
+    for (let i = 0; i < game.clearRows.length; i++) {
       game.grid.unshift(Array(COLS).fill(null));
     }
     // Adjust cheese positions after collapse
@@ -1249,16 +1251,21 @@ function loadHighScores() {
 }
 
 function saveHighScore(score) {
-  const scores = loadHighScores();
-  scores.push(score);
-  scores.sort((a,b) => b - a);
-  game.highScores = scores.slice(0, 5);
-  localStorage.setItem('mousetrix_scores', JSON.stringify(game.highScores));
-  // Track cumulative stats
-  const stats = loadStats();
-  stats.sessions++;
-  stats.totalCheese += game.cheeseHoard;
-  localStorage.setItem('mousetrix_stats', JSON.stringify(stats));
+  try {
+    const scores = loadHighScores();
+    scores.push(score);
+    scores.sort((a,b) => b - a);
+    game.highScores = scores.slice(0, 5);
+    localStorage.setItem('mousetrix_scores', JSON.stringify(game.highScores));
+    // Track cumulative stats
+    const stats = loadStats();
+    stats.sessions++;
+    stats.totalCheese += game.cheeseHoard;
+    localStorage.setItem('mousetrix_stats', JSON.stringify(stats));
+    // Refresh cached title stats
+    cachedTitleScores = game.highScores;
+    cachedTitleStats = stats;
+  } catch(e) { console.warn('Failed to save score', e); }
 }
 
 function loadStats() {
@@ -1320,7 +1327,7 @@ document.addEventListener('keydown', e => {
     }
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
-    if (game) {
+    if (game && screen === 'game') {
       if (game.state === 'playing') { game.state = 'paused'; stopMusic(); }
       else if (game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); }
     }
@@ -1979,23 +1986,21 @@ function drawPlayfield() {
   ctx.fillStyle = currentTheme.gridBg;
   ctx.fillRect(playX, playY, pw, ph);
 
-  // Grid lines
+  // Grid lines (batched into single stroke)
   ctx.strokeStyle = currentTheme.gridLine;
   ctx.lineWidth = 1;
+  ctx.beginPath();
   for (let c = 0; c <= COLS; c++) {
     const x = playX + c * CELL * s;
-    ctx.beginPath();
     ctx.moveTo(x, playY);
     ctx.lineTo(x, playY + ph);
-    ctx.stroke();
   }
   for (let r = 0; r <= ROWS; r++) {
     const y = playY + r * CELL * s;
-    ctx.beginPath();
     ctx.moveTo(playX, y);
     ctx.lineTo(playX + pw, y);
-    ctx.stroke();
   }
+  ctx.stroke();
 
   // Frame border
   ctx.strokeStyle = currentTheme.frameFill;
@@ -2005,6 +2010,12 @@ function drawPlayfield() {
   ctx.strokeStyle = COLORS.frameLt;
   ctx.lineWidth = 2 * s;
   ctx.strokeRect(playX - 5 * s, playY - 5 * s, pw + 10 * s, ph + 10 * s);
+
+  // Pre-build cluster cell Set for O(1) lookups
+  let clusterSet = null;
+  if (game.state === 'cluster_clearing' && game.clusterCells) {
+    clusterSet = new Set(game.clusterCells.map(cc => cc.row * COLS + cc.col));
+  }
 
   // Placed blocks
   for (let r = 0; r < ROWS; r++) {
@@ -2044,8 +2055,7 @@ function drawPlayfield() {
           }
         } else {
           // Check if this cell is part of a cluster being cleared
-          const inCluster = game.state === 'cluster_clearing' &&
-            game.clusterCells.some(cc => cc.row === r && cc.col === c);
+          const inCluster = clusterSet && clusterSet.has(r * COLS + c);
           if (inCluster) {
             if (game.clusterPhase === 0) {
               // Shimmer phase — pulsing glow
@@ -2376,6 +2386,8 @@ function getHighestOccupiedRow() {
 //  SCREENS
 // ============================================================
 let screen = 'title'; // 'title' | 'about' | 'game'
+let cachedTitleScores = null;
+let cachedTitleStats = null;
 let titleAnim = 0;
 
 function drawTitleScreen(dt) {
@@ -2563,9 +2575,11 @@ function drawTitleScreen(dt) {
   ctx.fillText('tap or press any key to start', w / 2, h * 0.56);
   ctx.globalAlpha = 1;
 
-  // ---- Stats area ----
-  const scores = loadHighScores();
-  const stats = loadStats();
+  // ---- Stats area (cached to avoid parsing localStorage every frame) ----
+  if (!cachedTitleScores) cachedTitleScores = loadHighScores();
+  if (!cachedTitleStats) cachedTitleStats = loadStats();
+  const scores = cachedTitleScores;
+  const stats = cachedTitleStats;
   ctx.textAlign = 'center';
   ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
 
@@ -2905,8 +2919,8 @@ function requestFullscreen() {
   } catch (e) { /* ignore */ }
   // Also lock orientation if available
   try {
-    if (screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('portrait').catch(() => {});
+    if (window.screen.orientation && window.screen.orientation.lock) {
+      window.screen.orientation.lock('portrait').catch(() => {});
     }
   } catch (e) { /* ignore */ }
   setTimeout(resizeCanvas, 200);
@@ -2992,7 +3006,7 @@ function updateCatCross(dt, cat) {
   cat.catCol = catCol;
   cat.catRow = cat.prowlRow;
 
-  catTryBat(cat, catCol, cat.prowlRow);
+  catTryBat(cat, catCol, cat.prowlRow, dt);
 
   if (cat.timer >= CAT_PROWL_TIME) {
     cat.phase = 'cooldown';
@@ -3012,7 +3026,7 @@ function updateCatPounce(dt, cat) {
 
   // Bat on impact (last 20% of animation)
   if (progress > 0.8) {
-    catTryBat(cat, cat.targetCol, cat.prowlRow);
+    catTryBat(cat, cat.targetCol, cat.prowlRow, dt);
   }
 
   // Shockwave at landing
@@ -3128,9 +3142,9 @@ function updateCatLurk(dt, cat) {
 }
 
 // Shared bat logic for cross attack
-function catTryBat(cat, catCol, catRow) {
+function catTryBat(cat, catCol, catRow, dt) {
   if (!game.current || game.state !== 'playing' || game.scurry) return;
-  if (cat.batCooldown && cat.batCooldown > 0) { cat.batCooldown -= 16; return; }
+  if (cat.batCooldown && cat.batCooldown > 0) { cat.batCooldown -= dt; return; }
   const p = game.current;
   const cells = getCells(p.type, p.rot);
   let shouldBat = false;
@@ -3705,13 +3719,13 @@ function draw(dt) {
 
   if (screen === 'title') {
     drawTitleScreen(dt);
-    drawVolumeButton();
+    drawVolumeButton(dt);
     return;
   }
 
   if (screen === 'about') {
     drawAboutScreen(dt);
-    drawVolumeButton();
+    drawVolumeButton(dt);
     return;
   }
 
@@ -3728,7 +3742,7 @@ function draw(dt) {
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'gameover') drawGameOver();
   drawExitButton();
-  drawVolumeButton();
+  drawVolumeButton(dt);
 }
 
 // ============================================================
@@ -3826,7 +3840,7 @@ function getVolumeFlyoutRects() {
   };
 }
 
-function drawVolumeButton() {
+function drawVolumeButton(dt) {
   const s = canvasScale;
   const btn = getVolumeButtonRect();
   const allMuted = !sfxEnabled && !musicEnabled;
@@ -3893,7 +3907,7 @@ function drawVolumeButton() {
     drawToggleRow(rects.music, '🎵 Music', musicEnabled, s);
 
     // Auto-close timer
-    volumeFlyoutTimer -= 16;
+    volumeFlyoutTimer -= (dt || 16);
     if (volumeFlyoutTimer <= 0) volumeFlyoutOpen = false;
   }
 }
