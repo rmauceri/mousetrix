@@ -1344,9 +1344,10 @@ canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   initAudio();
   const touch = e.touches[0];
-  // Volume button intercepts all screens
+  // Volume and exit buttons intercept all screens
   initAudio();
   if (handleVolumeClick(touch.clientX, touch.clientY)) return;
+  if (handleExitClick(touch.clientX, touch.clientY)) return;
   if (screen === 'about') {
     // Check if it's a scroll gesture — handled in touchmove
     touchStartX = touch.clientX;
@@ -1417,9 +1418,18 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  // Tap to dismiss about screen (but not if scrolled)
+  // About screen: handle close button tap or scroll
   if (screen === 'about') {
-    if (!touchMoved) screen = 'title';
+    const touch = e.changedTouches[0];
+    if (!touchMoved) {
+      // Check if tapped the close button
+      const rect = canvas.getBoundingClientRect();
+      const relY = (touch.clientY - rect.top) / rect.height;
+      const relX = (touch.clientX - rect.left) / rect.width;
+      if (relY > 0.90 && relX > 0.25 && relX < 0.75) {
+        screen = 'title';
+      }
+    }
     return;
   }
   if (!game || game.state !== 'playing' || game.scurry) return;
@@ -2833,12 +2843,35 @@ function drawAboutScreen(dt) {
   ctx.fillStyle = btmFade;
   ctx.fillRect(0, btmY - fadeH, w, fadeH);
 
-  // Dismiss hint (fixed at bottom)
-  ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+  // Close button (fixed at bottom)
+  const btnW = 120 * s;
+  const btnH = 32 * s;
+  const btnX = w / 2 - btnW / 2;
+  const btnY = h - clipBottom + 2 * s;
+  // Button background
+  ctx.fillStyle = 'rgba(168,144,112,0.2)';
+  ctx.beginPath();
+  const btnR = 8 * s;
+  ctx.moveTo(btnX + btnR, btnY);
+  ctx.lineTo(btnX + btnW - btnR, btnY);
+  ctx.quadraticCurveTo(btnX + btnW, btnY, btnX + btnW, btnY + btnR);
+  ctx.lineTo(btnX + btnW, btnY + btnH - btnR);
+  ctx.quadraticCurveTo(btnX + btnW, btnY + btnH, btnX + btnW - btnR, btnY + btnH);
+  ctx.lineTo(btnX + btnR, btnY + btnH);
+  ctx.quadraticCurveTo(btnX, btnY + btnH, btnX, btnY + btnH - btnR);
+  ctx.lineTo(btnX, btnY + btnR);
+  ctx.quadraticCurveTo(btnX, btnY, btnX + btnR, btnY);
+  ctx.closePath();
+  ctx.fill();
+  // Button border
+  ctx.strokeStyle = COLORS.accent;
+  ctx.lineWidth = 1.5 * s;
+  ctx.stroke();
+  // Button text
+  ctx.fillStyle = COLORS.accent;
+  ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.globalAlpha = 0.7 + Math.sin(Date.now() / 500) * 0.3;
-  ctx.fillText('tap or press any key to go back', w / 2, h - 10 * s);
+  ctx.fillText('✕  Close', w / 2, btnY + btnH * 0.65);
   ctx.globalAlpha = 1;
 
   // Scroll bar
@@ -3694,7 +3727,82 @@ function draw(dt) {
 
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'gameover') drawGameOver();
+  drawExitButton();
   drawVolumeButton();
+}
+
+// ============================================================
+//  EXIT BUTTON (bottom-left, game screen only)
+// ============================================================
+function getExitButtonRect() {
+  const s = canvasScale;
+  const size = 32 * s;
+  return { x: 8 * s, y: canvasH - size - 8 * s, w: size, h: size };
+}
+
+function drawExitButton() {
+  if (!game || screen !== 'game') return;
+  const s = canvasScale;
+  const btn = getExitButtonRect();
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  // Button bg
+  ctx.fillStyle = 'rgba(168,144,112,0.15)';
+  ctx.beginPath();
+  const r = 6 * s;
+  ctx.moveTo(btn.x + r, btn.y);
+  ctx.lineTo(btn.x + btn.w - r, btn.y);
+  ctx.quadraticCurveTo(btn.x + btn.w, btn.y, btn.x + btn.w, btn.y + r);
+  ctx.lineTo(btn.x + btn.w, btn.y + btn.h - r);
+  ctx.quadraticCurveTo(btn.x + btn.w, btn.y + btn.h, btn.x + btn.w - r, btn.y + btn.h);
+  ctx.lineTo(btn.x + r, btn.y + btn.h);
+  ctx.quadraticCurveTo(btn.x, btn.y + btn.h, btn.x, btn.y + btn.h - r);
+  ctx.lineTo(btn.x, btn.y + r);
+  ctx.quadraticCurveTo(btn.x, btn.y, btn.x + r, btn.y);
+  ctx.closePath();
+  ctx.fill();
+  // Door icon
+  const cx = btn.x + btn.w / 2;
+  const cy = btn.y + btn.h / 2;
+  const dw = 10 * s, dh = 14 * s;
+  // Door frame
+  ctx.strokeStyle = COLORS.accent;
+  ctx.lineWidth = 1.5 * s;
+  ctx.strokeRect(cx - dw / 2, cy - dh / 2, dw, dh);
+  // Door knob
+  ctx.fillStyle = COLORS.accent;
+  ctx.beginPath();
+  ctx.arc(cx + dw * 0.2, cy + dh * 0.05, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+  // Arrow pointing left (exit)
+  ctx.strokeStyle = COLORS.accent;
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(cx - dw / 2 - 3 * s, cy);
+  ctx.lineTo(cx - dw / 2 - 8 * s, cy);
+  ctx.moveTo(cx - dw / 2 - 6 * s, cy - 3 * s);
+  ctx.lineTo(cx - dw / 2 - 8 * s, cy);
+  ctx.lineTo(cx - dw / 2 - 6 * s, cy + 3 * s);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function handleExitClick(clientX, clientY) {
+  if (!game || screen !== 'game') return false;
+  const canvasRect = canvas.getBoundingClientRect();
+  const x = (clientX - canvasRect.left) * (canvasW / canvasRect.width);
+  const y = (clientY - canvasRect.top) * (canvasH / canvasRect.height);
+  const btn = getExitButtonRect();
+  if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+    game.state = 'paused';
+    stopMusic();
+    screen = 'title';
+    titleMice = [];
+    titleMouseTimer = 0;
+    if (musicEnabled && audioReady) startTitleMusic();
+    return true;
+  }
+  return false;
 }
 
 // ============================================================
@@ -3877,7 +3985,16 @@ document.addEventListener('webkitfullscreenchange', () => setTimeout(resizeCanva
 canvas.addEventListener('click', e => {
   initAudio();
   if (handleVolumeClick(e.clientX, e.clientY)) return;
-  if (screen === 'about') { screen = 'title'; return; }
+  if (handleExitClick(e.clientX, e.clientY)) return;
+  if (screen === 'about') {
+    const rect = canvas.getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+    const relX = (e.clientX - rect.left) / rect.width;
+    if (relY > 0.90 && relX > 0.25 && relX < 0.75) {
+      screen = 'title';
+    }
+    return;
+  }
   if (screen === 'title') {
     const rect = canvas.getBoundingClientRect();
     const relY = (e.clientY - rect.top) / rect.height;
