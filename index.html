@@ -749,15 +749,17 @@ function nextPiece() {
   game.lockTimer = -1;
   game.lockMoves = 0;
   game.gravityTimer = 0;
-  // Set up scurry animation
+  // Set up scurry animation — piece emerges from mouse hole
   const hole = game.current.hole;
   if (hole) {
     const size = PIECES[game.current.type].size;
+    const holeCol = hole.side === 'left' ? -size : COLS;
     game.scurry = {
       timer: 0,
       duration: SCURRY_DURATION,
-      startCol: hole.side === 'left' ? -size : COLS,
+      startCol: holeCol,
       startRow: game.current.row,
+      hole: hole,
     };
     game.currentHole = hole;
     sfxScurry();
@@ -1044,6 +1046,7 @@ function holdPiece() {
       timer: 0, duration: SCURRY_DURATION,
       startCol: hole.side === 'left' ? -size : COLS,
       startRow: hole.row,
+      hole: hole,
     };
     sfxScurry();
   } else {
@@ -1057,6 +1060,7 @@ function holdPiece() {
         timer: 0, duration: SCURRY_DURATION,
         startCol: hole.side === 'left' ? -size : COLS,
         startRow: game.current.row,
+        hole: hole,
       };
       sfxScurry();
     }
@@ -2217,14 +2221,17 @@ function drawCurrentPiece() {
     }
   }
 
-  // Calculate scurry slide offset
+  // Calculate scurry slide offset + clipping for hole emergence
   let offsetX = 0;
+  let scurryClip = false;
   if (game.scurry) {
     const t = Math.min(game.scurry.timer / game.scurry.duration, 1);
     const eased = 1 - (1 - t) * (1 - t); // ease-out quadratic
     const startPx = game.scurry.startCol * CELL * s;
     const endPx = p.col * CELL * s;
     offsetX = startPx + (endPx - startPx) * eased - endPx;
+    // Clip to playfield so piece appears to emerge from hole edge
+    if (t < 1) scurryClip = true;
   }
 
   // Active piece — draw colored glow around each mouse group (not per-cell)
@@ -2232,6 +2239,15 @@ function drawCurrentPiece() {
   const pieceColor = PIECE_COLORS[p.type];
   const glowBaseX = playX + p.col * CELL * s + offsetX;
   const glowBaseY = playY + p.row * CELL * s;
+
+  // Apply clip region during scurry so piece emerges from hole
+  if (scurryClip) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(playX, playY - CELL * s, COLS * CELL * s, (ROWS + 1) * CELL * s);
+    ctx.clip();
+  }
+
   const pulse = 0.5 + Math.sin(Date.now() / 300) * 0.2;
   const groups = partitionCells(cells);
   ctx.save();
@@ -2271,6 +2287,11 @@ function drawCurrentPiece() {
   const baseX = glowBaseX;
   const baseY = glowBaseY;
   drawPieceMouse(p, baseX, baseY, CELL * s);
+
+  // Restore clipping
+  if (scurryClip) {
+    ctx.restore();
+  }
 }
 
 function drawPreviewPiece(piece, cx, cy, cellSize, label) {
