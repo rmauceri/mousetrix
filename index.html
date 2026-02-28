@@ -108,14 +108,14 @@ const CHEESE_TYPES = {
 //  MOUSE HOLE ENTRY
 // ============================================================
 const MOUSE_HOLES = [
-  { side: 'left',  row: 0, minLevel: 0 },
-  { side: 'right', row: 0, minLevel: 0 },
   { side: 'left',  row: 1, minLevel: 0 },
   { side: 'right', row: 1, minLevel: 0 },
-  { side: 'left',  row: 5, minLevel: 3 },
-  { side: 'right', row: 5, minLevel: 3 },
-  { side: 'left',  row: 10, minLevel: 6 },
-  { side: 'right', row: 10, minLevel: 6 },
+  { side: 'left',  row: 4, minLevel: 0 },
+  { side: 'right', row: 4, minLevel: 0 },
+  { side: 'left',  row: 7, minLevel: 3 },
+  { side: 'right', row: 7, minLevel: 3 },
+  { side: 'left',  row: 12, minLevel: 6 },
+  { side: 'right', row: 12, minLevel: 6 },
 ];
 const SCURRY_DURATION = 250;           // ms for piece to slide in from hole
 
@@ -276,9 +276,22 @@ let musicGain = null;
 let audioReady = false;
 let sfxEnabled = true;
 let musicEnabled = true;
+let volumeFlyoutOpen = false;
+let volumeFlyoutTimer = 0; // auto-close timer
 
 function initAudio() {
-  if (audioCtx) return;
+  if (audioCtx) {
+    // Already created — just try to resume if suspended
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => {
+        if (!audioReady) {
+          audioReady = true;
+          if (screen === 'title' && musicEnabled) startTitleMusic();
+        }
+      }).catch(() => {});
+    }
+    return;
+  }
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
@@ -290,7 +303,16 @@ function initAudio() {
     musicGain = audioCtx.createGain();
     musicGain.gain.value = 0.3;
     musicGain.connect(masterGain);
-    audioReady = true;
+    if (audioCtx.state === 'running') {
+      audioReady = true;
+      if (screen === 'title' && musicEnabled) startTitleMusic();
+    } else {
+      // Suspended — will be resumed on first user gesture
+      audioCtx.resume().then(() => {
+        audioReady = true;
+        if (screen === 'title' && musicEnabled) startTitleMusic();
+      }).catch(() => {});
+    }
   } catch(e) { console.warn('Audio init failed', e); }
 }
 
@@ -517,6 +539,107 @@ function startMusic() {
 function stopMusic() {
   if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
 }
+
+// Title screen music — playful, rhythmic, cheese-hunt energy
+let titleMusicInterval = null;
+// Lead melody: bouncy, catchy phrase with variation
+const TITLE_LEAD = [
+  { f: 523, d: 0.12 }, { f: 0, d: 0.06 }, { f: 587, d: 0.12 }, { f: 659, d: 0.18 },
+  { f: 523, d: 0.08 }, { f: 0, d: 0.04 }, { f: 523, d: 0.08 }, { f: 659, d: 0.12 }, { f: 784, d: 0.24 },
+  { f: 0, d: 0.12 },
+  { f: 698, d: 0.12 }, { f: 659, d: 0.12 }, { f: 587, d: 0.18 }, { f: 0, d: 0.06 },
+  { f: 523, d: 0.12 }, { f: 494, d: 0.08 }, { f: 523, d: 0.24 },
+  { f: 0, d: 0.18 },
+  // Second phrase — variation
+  { f: 440, d: 0.12 }, { f: 0, d: 0.04 }, { f: 523, d: 0.12 }, { f: 587, d: 0.18 },
+  { f: 659, d: 0.12 }, { f: 0, d: 0.06 }, { f: 784, d: 0.12 }, { f: 659, d: 0.12 }, { f: 587, d: 0.18 },
+  { f: 0, d: 0.08 },
+  { f: 523, d: 0.08 }, { f: 587, d: 0.08 }, { f: 659, d: 0.08 }, { f: 784, d: 0.12 },
+  { f: 880, d: 0.3 }, { f: 784, d: 0.18 }, { f: 659, d: 0.24 },
+  { f: 0, d: 0.24 },
+];
+// Bass line: simple bouncy root notes
+const TITLE_BASS = [
+  262, 262, 0, 262, 330, 330, 0, 330,
+  349, 349, 0, 349, 294, 294, 0, 294,
+  262, 262, 0, 330, 349, 349, 0, 294,
+  262, 262, 0, 262, 330, 330, 262, 0,
+];
+let titleLeadIdx = 0;
+let titleBassIdx = 0;
+let titleNextLeadTime = 0;
+
+function startTitleMusic() {
+  if (!audioReady || !musicEnabled) return;
+  stopTitleMusic();
+  titleLeadIdx = 0;
+  titleBassIdx = 0;
+  titleNextLeadTime = audioCtx.currentTime;
+
+  // Bass pulse — steady rhythmic bounce
+  titleMusicInterval = setInterval(() => {
+    if (!musicEnabled || !audioReady) { stopTitleMusic(); return; }
+    const now = audioCtx.currentTime;
+
+    // --- Bass note ---
+    const bassFreq = TITLE_BASS[titleBassIdx % TITLE_BASS.length];
+    titleBassIdx++;
+    if (bassFreq > 0) {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(bassFreq * 0.5, now);
+      g.gain.setValueAtTime(0.06, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(g); g.connect(musicGain);
+      osc.start(now); osc.stop(now + 0.18);
+    }
+
+    // --- Lead melody (variable note durations, scheduled ahead) ---
+    while (titleNextLeadTime <= now + 0.05) {
+      const note = TITLE_LEAD[titleLeadIdx % TITLE_LEAD.length];
+      titleLeadIdx++;
+      if (note.f > 0) {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.f, titleNextLeadTime);
+        const vol = 0.055;
+        g.gain.setValueAtTime(vol, titleNextLeadTime);
+        g.gain.exponentialRampToValueAtTime(0.001, titleNextLeadTime + note.d + 0.08);
+        osc.connect(g); g.connect(musicGain);
+        osc.start(titleNextLeadTime);
+        osc.stop(titleNextLeadTime + note.d + 0.12);
+      }
+      titleNextLeadTime += note.d;
+    }
+  }, 140); // ~107 BPM eighth-note pulse
+}
+
+function stopTitleMusic() {
+  if (titleMusicInterval) { clearInterval(titleMusicInterval); titleMusicInterval = null; }
+}
+
+// Scurrying mice on title screen
+let titleMice = [];
+const TITLE_PIECES_NO_O = ['I','T','S','Z','L','J']; // exclude O (square, no directionality)
+function spawnTitleMouse() {
+  const s = canvasScale || 1;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const axis = Math.random() < 0.5 ? 'h' : 'v';
+  const spd = (120 + Math.random() * 80) * s;
+  const type = TITLE_PIECES_NO_O[Math.floor(Math.random() * TITLE_PIECES_NO_O.length)];
+  // horizontal mice use flat rotations (0,2), vertical use tall rotations (1,3)
+  const rot = axis === 'h' ? (Math.random() < 0.5 ? 0 : 2) : (Math.random() < 0.5 ? 1 : 3);
+  if (axis === 'h') {
+    titleMice.push({ x: dir === 1 ? -CELL * s * 2 : canvasW + CELL * s * 2,
+      y: (0.3 + Math.random() * 0.5) * canvasH, dir, speed: spd, type, rot, timer: 0, axis });
+  } else {
+    titleMice.push({ x: (0.15 + Math.random() * 0.7) * canvasW,
+      y: dir === 1 ? -CELL * s * 2 : canvasH + CELL * s * 2, dir, speed: spd, type, rot, timer: 0, axis });
+  }
+}
+let titleMouseTimer = 0;
 
 // ============================================================
 //  GAME STATE
@@ -1131,6 +1254,17 @@ function saveHighScore(score) {
   scores.sort((a,b) => b - a);
   game.highScores = scores.slice(0, 5);
   localStorage.setItem('mousetrix_scores', JSON.stringify(game.highScores));
+  // Track cumulative stats
+  const stats = loadStats();
+  stats.sessions++;
+  stats.totalCheese += game.cheeseHoard;
+  localStorage.setItem('mousetrix_stats', JSON.stringify(stats));
+}
+
+function loadStats() {
+  try {
+    return JSON.parse(localStorage.getItem('mousetrix_stats') || '{"sessions":0,"totalCheese":0}');
+  } catch { return { sessions: 0, totalCheese: 0 }; }
 }
 
 // ============================================================
@@ -1143,7 +1277,8 @@ let touchId = null;
 
 // Keyboard
 document.addEventListener('keydown', e => {
-  if (screen === 'title') { startGame(); return; }
+  if (screen === 'about') { screen = 'title'; return; }
+  if (screen === 'title') { initAudio(); startGame(); return; }
   if (e.repeat && (e.key === 'ArrowUp' || e.key === ' ' || e.key === 'x' || e.key === 'z' || e.key === 'c')) return;
   keys[e.key] = true;
 
@@ -1208,10 +1343,31 @@ const canvas = document.getElementById('gameCanvas');
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   initAudio();
-  if (screen === 'title') { startGame(); return; }
-  if (game && game.state === 'gameover') { startGame(); return; }
-  if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
   const touch = e.touches[0];
+  // Volume button intercepts all screens
+  initAudio();
+  if (handleVolumeClick(touch.clientX, touch.clientY)) return;
+  if (screen === 'about') {
+    // Check if it's a scroll gesture — handled in touchmove
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchMoved = false;
+    touchId = touch.identifier;
+    return;
+  }
+  if (screen === 'title') {
+    // Check if tapped on "About" link (bottom 15% of screen)
+    const rect = canvas.getBoundingClientRect();
+    const relY = (touch.clientY - rect.top) / rect.height;
+    if (relY > 0.82 && relY < 0.94) {
+      screen = 'about';
+      aboutScrollY = 0;
+      return;
+    }
+    requestFullscreen(); startGame(); return;
+  }
+  if (game && game.state === 'gameover') { requestFullscreen(); startGame(); return; }
+  if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
   touchStartTime = Date.now();
@@ -1221,6 +1377,18 @@ canvas.addEventListener('touchstart', e => {
 
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
+  // Scroll the about screen
+  if (screen === 'about') {
+    const touch = Array.from(e.touches).find(t => t.identifier === touchId);
+    if (touch) {
+      const dy = touchStartY - touch.clientY;
+      aboutScrollY += dy;
+      if (aboutScrollY < 0) aboutScrollY = 0;
+      touchStartY = touch.clientY;
+      touchMoved = true;
+    }
+    return;
+  }
   if (!game || game.state !== 'playing' || game.scurry) return;
   const touch = Array.from(e.touches).find(t => t.identifier === touchId);
   if (!touch) return;
@@ -1249,6 +1417,11 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
+  // Tap to dismiss about screen (but not if scrolled)
+  if (screen === 'about') {
+    if (!touchMoved) screen = 'title';
+    return;
+  }
   if (!game || game.state !== 'playing' || game.scurry) return;
   const dt = Date.now() - touchStartTime;
   if (!touchMoved && dt < 300) {
@@ -1294,19 +1467,18 @@ let playX = 0, playY = 0; // top-left of playfield in canvas coords
 function resizeCanvas() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  // Board-dominant layout: playfield + minimal margins, no side panel
-  const totalW = COLS * CELL + CELL * 2; // just playfield + small margins
-  const totalH = ROWS * CELL + CELL * 2.5; // playfield + top HUD bar + bottom hint
+  // Board + HUD top + preview strip below
+  const totalW = COLS * CELL + CELL * 2;
+  const totalH = ROWS * CELL + CELL * 8; // board + top HUD + bottom preview area
   const scale = Math.min(vw / totalW, vh / totalH, 2.5);
   canvasScale = scale;
-  canvasW = Math.floor(vw); // use full viewport width
-  canvasH = Math.floor(vh); // use full viewport height
+  canvasW = Math.floor(vw);
+  canvasH = Math.floor(vh);
   canvas.width = canvasW;
   canvas.height = canvasH;
   canvas.style.width = canvasW + 'px';
   canvas.style.height = canvasH + 'px';
 
-  // Center playfield horizontally, push toward top
   const pfW = COLS * CELL * scale;
   playX = Math.floor((canvasW - pfW) / 2);
   playY = Math.floor(CELL * 1.8 * scale);
@@ -1433,7 +1605,7 @@ function partitionCells(cells) {
 }
 
 // Draw a single mouse spanning 1 or 2 cells
-function drawGroupMouse(group, baseX, baseY, s, fur, alpha, groupIdx) {
+function drawGroupMouse(group, baseX, baseY, s, fur, alpha, groupIdx, vFacingHint) {
   ctx.globalAlpha = alpha;
   if (group.length === 1) {
     drawCurledMouse(baseX + (group[0][1] + 0.5) * s, baseY + (group[0][0] + 0.5) * s, s, fur, groupIdx);
@@ -1444,7 +1616,7 @@ function drawGroupMouse(group, baseX, baseY, s, fur, alpha, groupIdx) {
     const cy = baseY + (a[0] + b[0] + 1) * s / 2;
     // Determine facing: head toward smaller col (horiz) or smaller row (vert)
     const facing = isHoriz ? (a[1] < b[1] ? -1 : 1) : 1;
-    drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, groupIdx);
+    drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, groupIdx, vFacingHint);
   }
   ctx.globalAlpha = 1;
 }
@@ -1510,7 +1682,7 @@ function drawCurledMouse(cx, cy, s, fur, idx) {
 }
 
 // Stretched mouse spanning 2 cells
-function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx) {
+function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx, vFacingHint) {
   const bodyRx = isHoriz ? s * 0.82 : s * 0.34;
   const bodyRy = isHoriz ? s * 0.3 : s * 0.82;
   const headR = s * 0.25;
@@ -1538,7 +1710,7 @@ function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx) {
     hx = cx + facing * bodyRx * 0.7;
     hy = cy - bodyRy * 0.35;
   } else {
-    const vFacing = (idx % 2 === 0) ? -1 : 1;
+    const vFacing = vFacingHint || ((idx % 2 === 0) ? -1 : 1);
     hx = cx;
     hy = cy + vFacing * bodyRy * 0.7;
   }
@@ -1634,7 +1806,7 @@ function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx) {
     tx2 = tx1 - facing * s * 0.3;
     ty2 = ty1 - s * 0.35;
   } else {
-    const vFacing = (idx % 2 === 0) ? -1 : 1;
+    const vFacing = vFacingHint || ((idx % 2 === 0) ? -1 : 1);
     tx1 = cx;
     ty1 = cy - vFacing * bodyRy * 0.85;
     tx2 = tx1 + s * 0.3;
@@ -1652,14 +1824,14 @@ function drawStretchedMouse(cx, cy, s, fur, isHoriz, facing, idx) {
 }
 
 // Draw the full piece as a group of mice
-function drawPieceMouse(piece, baseX, baseY, cellSize, alpha = 1) {
+function drawPieceMouse(piece, baseX, baseY, cellSize, alpha = 1, vFacingHint) {
   const type = piece.type || piece;
   const rot = piece.rot || 0;
   const cells = getCells(type, rot);
   const furs = PIECE_FURS[type];
   const groups = partitionCells(cells);
   groups.forEach((group, gi) => {
-    drawGroupMouse(group, baseX, baseY, cellSize, furs[gi % furs.length], alpha, gi);
+    drawGroupMouse(group, baseX, baseY, cellSize, furs[gi % furs.length], alpha, gi, vFacingHint);
   });
 }
 
@@ -1732,28 +1904,56 @@ function drawMouseHoles() {
   for (const hole of MOUSE_HOLES) {
     if (hole.minLevel > level) continue;
     const holeY = playY + (hole.row + 0.5) * CELL * s;
-    const holeX = hole.side === 'left' ? playX - 3 * s : playX + pw + 3 * s;
-    const hr = CELL * s * 0.35;
+    const holeX = hole.side === 'left' ? playX - 1 * s : playX + pw + 1 * s;
+    const hw = CELL * s * 0.45; // half-width of square base
+    const hh = CELL * s * 0.55; // half-height
+    const archR = hw;            // radius for arch top
 
-    // Dark archway
+    // Cartoon mouse hole: square base + half-circle arch on top
     ctx.fillStyle = '#0a0705';
     ctx.beginPath();
-    ctx.ellipse(holeX, holeY, hr * 0.8, hr, 0, 0, Math.PI * 2);
+    // Start bottom-left, go up left side, arch across top, down right side
+    ctx.moveTo(holeX - hw, holeY + hh);
+    ctx.lineTo(holeX - hw, holeY - hh + archR);
+    ctx.arc(holeX, holeY - hh + archR, archR, Math.PI, 0, false);
+    ctx.lineTo(holeX + hw, holeY + hh);
+    ctx.closePath();
     ctx.fill();
-    // Arch border
+
+    // Border
     ctx.strokeStyle = COLORS.frameLt;
-    ctx.lineWidth = 2 * s;
+    ctx.lineWidth = 2.5 * s;
     ctx.beginPath();
-    ctx.ellipse(holeX, holeY, hr * 0.8, hr, 0, 0, Math.PI * 2);
+    ctx.moveTo(holeX - hw, holeY + hh);
+    ctx.lineTo(holeX - hw, holeY - hh + archR);
+    ctx.arc(holeX, holeY - hh + archR, archR, Math.PI, 0, false);
+    ctx.lineTo(holeX + hw, holeY + hh);
     ctx.stroke();
+
+    // Inner shadow for depth
+    const shadowGrad = ctx.createRadialGradient(holeX, holeY, hw * 0.2, holeX, holeY, hw * 1.2);
+    shadowGrad.addColorStop(0, 'rgba(10,7,5,0.8)');
+    shadowGrad.addColorStop(1, 'rgba(10,7,5,0)');
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.moveTo(holeX - hw, holeY + hh);
+    ctx.lineTo(holeX - hw, holeY - hh + archR);
+    ctx.arc(holeX, holeY - hh + archR, archR, Math.PI, 0, false);
+    ctx.lineTo(holeX + hw, holeY + hh);
+    ctx.closePath();
+    ctx.fill();
+
     // Highlight next hole
     if (game && game.next && game.next.hole === hole) {
       const pulse = 0.4 + Math.sin(Date.now() / 300) * 0.4;
       ctx.globalAlpha = pulse;
       ctx.strokeStyle = COLORS.accent;
-      ctx.lineWidth = 2 * s;
+      ctx.lineWidth = 2.5 * s;
       ctx.beginPath();
-      ctx.ellipse(holeX, holeY, hr * 1.2, hr * 1.4, 0, 0, Math.PI * 2);
+      ctx.moveTo(holeX - hw - 3 * s, holeY + hh + 2 * s);
+      ctx.lineTo(holeX - hw - 3 * s, holeY - hh + archR);
+      ctx.arc(holeX, holeY - hh + archR, archR + 3 * s, Math.PI, 0, false);
+      ctx.lineTo(holeX + hw + 3 * s, holeY + hh + 2 * s);
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -2050,19 +2250,19 @@ function drawCurrentPiece() {
 
 function drawPreviewPiece(piece, cx, cy, cellSize, label) {
   const s = canvasScale;
-  // Compact inline box
-  const boxSize = cellSize * 3.2;
+  const boxW = cellSize * 4;
+  const boxH = cellSize * 4;
   ctx.fillStyle = 'rgba(13,9,6,0.5)';
   ctx.strokeStyle = COLORS.frame;
   ctx.lineWidth = 1.5 * s;
-  ctx.fillRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
-  ctx.strokeRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
+  ctx.fillRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
 
   // Label above box
   ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
+  ctx.font = `${8 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(label, cx, cy - boxSize / 2 - 3 * s);
+  ctx.fillText(label, cx, cy - boxH / 2 - 4 * s);
 
   if (!piece) return;
   const type = piece.type || piece;
@@ -2083,11 +2283,11 @@ function drawPreviewPiece(piece, cx, cy, cellSize, label) {
   ctx.save();
   ctx.globalAlpha = 0.15;
   ctx.fillStyle = pieceColor;
-  ctx.fillRect(cx - boxSize / 2 + 1, cy - boxSize / 2 + 1, boxSize - 2, boxSize - 2);
+  ctx.fillRect(cx - boxW / 2 + 1, cy - boxH / 2 + 1, boxW - 2, boxH - 2);
   ctx.globalAlpha = 1;
   ctx.strokeStyle = pieceColor;
   ctx.lineWidth = 2 * s;
-  ctx.strokeRect(cx - boxSize / 2, cy - boxSize / 2, boxSize, boxSize);
+  ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
   ctx.restore();
 
   drawPieceMouse({ type, rot }, ox, oy, cellSize);
@@ -2096,7 +2296,7 @@ function drawPreviewPiece(piece, cx, cy, cellSize, label) {
 function drawHUD() {
   const s = canvasScale;
   const pw = COLS * CELL * s;
-  const hudY = playY - 8 * s; // just above playfield
+  const hudY = playY - 8 * s;
 
   // Score (left-aligned)
   ctx.fillStyle = COLORS.text;
@@ -2124,19 +2324,20 @@ function drawHUD() {
     ctx.fillText(`🧀 ${game.cheeseHoard}`, playX + pw / 2, hudY);
   }
 
-  // NEXT and HOLD previews — inline, below the playfield
-  const previewSize = PREVIEW_CELL * s * 0.85;
+  // NEXT and HOLD previews — below the playfield, side by side with generous sizing
   const bottomY = playY + ROWS * CELL * s;
-  const previewY = bottomY + CELL * s * 0.9;
-  drawPreviewPiece(game.next, playX + pw * 0.25, previewY, previewSize, 'NEXT');
-  drawPreviewPiece(game.held, playX + pw * 0.75, previewY, previewSize, 'HOLD');
+  const previewSize = PREVIEW_CELL * s;
+  const previewY = bottomY + CELL * s * 2.8;
+  const gap = pw * 0.15;
+  drawPreviewPiece(game.next, playX + pw / 2 - gap - previewSize * 2, previewY, previewSize, 'NEXT');
+  drawPreviewPiece(game.held, playX + pw / 2 + gap + previewSize * 2, previewY, previewSize, 'HOLD');
 
-  // Combo indicator (overlaid on bottom of playfield)
+  // Combo indicator (between board and previews)
   if (game.combo > 1) {
     ctx.fillStyle = COLORS.accent;
     ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(`${game.combo}x COMBO!`, playX + pw / 2, bottomY - 6 * s);
+    ctx.fillText(`${game.combo}x COMBO!`, playX + pw / 2, bottomY + CELL * s * 0.8);
   }
 
   // Danger indicator
@@ -2147,11 +2348,11 @@ function drawHUD() {
     ctx.fillRect(playX, playY, pw, ROWS * CELL * s);
   }
 
-  // Touch hints (compact, below previews)
+  // Touch hints (below previews)
   ctx.fillStyle = COLORS.textDim;
   ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('← swipe → | tap: rotate | ↓ drop', playX + pw / 2, previewY + CELL * s * 1.6);
+  ctx.fillText('← swipe → | tap: rotate | ↓ drop', playX + pw / 2, previewY + previewSize * 2.8);
 }
 
 function getHighestOccupiedRow() {
@@ -2164,68 +2365,244 @@ function getHighestOccupiedRow() {
 // ============================================================
 //  SCREENS
 // ============================================================
-let screen = 'title'; // 'title' | 'game'
+let screen = 'title'; // 'title' | 'about' | 'game'
 let titleAnim = 0;
 
 function drawTitleScreen(dt) {
   titleAnim += dt;
   const s = canvasScale;
   const w = canvasW, h = canvasH;
+  const t = titleAnim / 1000;
+
+  // Start title music on first frame
+  if (!titleMusicInterval && musicEnabled && audioReady) startTitleMusic();
 
   // Background
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Warm vignette
-  const grad = ctx.createRadialGradient(w / 2, h / 2, w * 0.15, w / 2, h / 2, w * 0.6);
-  grad.addColorStop(0, 'rgba(232,168,64,0.06)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
-  ctx.fillStyle = grad;
+  // ---- Scurrying mice ----
+  titleMouseTimer += dt;
+  if (titleMouseTimer > 2500 + Math.random() * 2000) {
+    titleMouseTimer = 0;
+    if (titleMice.length < 3) spawnTitleMouse();
+  }
+  for (let i = titleMice.length - 1; i >= 0; i--) {
+    const m = titleMice[i];
+    if (m.axis === 'h') {
+      m.x += m.dir * m.speed * (dt / 1000);
+    } else {
+      m.y += m.dir * m.speed * (dt / 1000);
+    }
+    m.timer += dt;
+    // Draw the scurrying mouse
+    ctx.globalAlpha = 0.6;
+    const mSize = CELL * s * 0.7;
+    ctx.save();
+    if (m.axis === 'h' && m.dir === 1) {
+      // flip horizontally so mouse faces right
+      ctx.translate(m.x, m.y);
+      ctx.scale(-1, 1);
+      ctx.translate(-m.x, -m.y);
+    }
+    // vertical mice: pass vFacingHint so heads face movement direction
+    const vHint = m.axis === 'v' ? m.dir : undefined;
+    drawPieceMouse({ type: m.type, rot: m.rot }, m.x - mSize, m.y - mSize, mSize, 0.5, vHint);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    // Remove when off screen
+    const margin = CELL * s * 3;
+    let offScreen = false;
+    if (m.axis === 'h') {
+      offScreen = (m.dir === 1 && m.x > w + margin) || (m.dir === -1 && m.x < -margin);
+    } else {
+      offScreen = (m.dir === 1 && m.y > h + margin) || (m.dir === -1 && m.y < -margin);
+    }
+    if (offScreen) titleMice.splice(i, 1);
+  }
+
+  // ---- Ambient warm glow — drifting, centered on title ----
+  const titleY = h * 0.18;
+
+  // Large warm halo behind title
+  const titleGlow = ctx.createRadialGradient(w / 2, titleY, 0, w / 2, titleY, w * 0.45);
+  const glowPulse = 0.08 + Math.sin(t * 0.4) * 0.03;
+  titleGlow.addColorStop(0, `rgba(245,214,138,${glowPulse * 1.5})`);
+  titleGlow.addColorStop(0.3, `rgba(232,168,64,${glowPulse})`);
+  titleGlow.addColorStop(0.6, `rgba(200,120,40,${glowPulse * 0.4})`);
+  titleGlow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = titleGlow;
   ctx.fillRect(0, 0, w, h);
 
-  // Title
-  ctx.fillStyle = COLORS.text;
-  ctx.font = `bold ${36 * s}px 'Segoe UI', sans-serif`;
+  // Drifting secondary glow
+  const glow2x = w * 0.5 + Math.cos(t * 0.25) * w * 0.15;
+  const glow2y = h * 0.4 + Math.sin(t * 0.35) * h * 0.08;
+  const g2 = ctx.createRadialGradient(glow2x, glow2y, 0, glow2x, glow2y, w * 0.35);
+  g2.addColorStop(0, 'rgba(232,168,64,0.06)');
+  g2.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, 0, w, h);
+
+  // Deep vignette
+  const vig = ctx.createRadialGradient(w / 2, h * 0.35, w * 0.08, w / 2, h * 0.35, w * 0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, w, h);
+
+  // ---- Title text — large with strong glow ----
+  const titleFont = Math.floor(42 * s);
+  const titleText = 'MOUSETRIX';
+
+  // Multi-layer glow behind title
+  ctx.save();
   ctx.textAlign = 'center';
-  ctx.fillText('🐭 MOUSETRIX', w / 2, h * 0.25);
+  ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
+  // Outer glow
+  ctx.shadowColor = 'rgba(245,214,138,0.8)';
+  ctx.shadowBlur = 40 * s;
+  ctx.fillStyle = 'rgba(232,168,64,0.3)';
+  ctx.fillText(titleText, w / 2, titleY);
+  // Inner glow
+  ctx.shadowColor = 'rgba(255,230,180,0.6)';
+  ctx.shadowBlur = 15 * s;
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText(titleText, w / 2, titleY);
+  ctx.restore();
+
+  // Shimmer sweep
+  const shimmerPos = ((titleAnim / 2500) % 1);
+  const shimmerX = w * 0.2 + shimmerPos * w * 0.6;
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  const shimGrad = ctx.createLinearGradient(shimmerX - 40 * s, 0, shimmerX + 40 * s, 0);
+  shimGrad.addColorStop(0, 'rgba(255,255,255,0)');
+  shimGrad.addColorStop(0.5, 'rgba(255,255,255,1)');
+  shimGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = shimGrad;
+  ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(titleText, w / 2, titleY);
+  ctx.restore();
+
+  // Solid title on top
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(titleText, w / 2, titleY);
 
   // Subtitle
   ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('A very cozy puzzle', w / 2, h * 0.31);
+  ctx.font = `${13 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('🧀  a very cheezy puzzle  🧀', w / 2, titleY + 28 * s);
 
-  // Animated mouse preview — draw a rotating piece
-  const previewType = PIECE_NAMES[Math.floor(titleAnim / 2000) % 7];
-  const previewRot = Math.floor(titleAnim / 800) % 4;
-  const previewS = CELL * s * 0.9;
-  drawPieceMouse(
-    { type: previewType, rot: previewRot },
-    w / 2 - previewS * 2,
-    h * 0.42,
-    previewS,
-    0.8
-  );
+  // ---- Mouse hole with warm light ----
+  const holeX = w / 2;
+  const holeY = h * 0.42;
+  const holeW = 28 * s;
+  const holeH = 34 * s;
+  const archR = holeW;
 
-  // CTA
+  // Warm light spilling from hole
+  const lightGrad = ctx.createRadialGradient(holeX, holeY + holeH * 0.2, holeW * 0.3, holeX, holeY + holeH * 0.2, holeW * 2.5);
+  lightGrad.addColorStop(0, 'rgba(245,214,138,0.12)');
+  lightGrad.addColorStop(0.4, 'rgba(232,168,64,0.06)');
+  lightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = lightGrad;
+  ctx.fillRect(holeX - holeW * 3, holeY - holeH * 2, holeW * 6, holeH * 4);
+
+  // Hole shape: square + arch
+  ctx.fillStyle = '#0a0705';
+  ctx.beginPath();
+  ctx.moveTo(holeX - holeW, holeY + holeH);
+  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
+  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
+  ctx.lineTo(holeX + holeW, holeY + holeH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner warmth
+  const innerGrad = ctx.createRadialGradient(holeX, holeY, holeW * 0.15, holeX, holeY, holeW * 0.8);
+  innerGrad.addColorStop(0, 'rgba(232,168,64,0.15)');
+  innerGrad.addColorStop(1, 'rgba(10,7,5,0.9)');
+  ctx.fillStyle = innerGrad;
+  ctx.beginPath();
+  ctx.moveTo(holeX - holeW, holeY + holeH);
+  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
+  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
+  ctx.lineTo(holeX + holeW, holeY + holeH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Hole border
+  ctx.strokeStyle = COLORS.frameLt;
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(holeX - holeW, holeY + holeH);
+  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
+  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
+  ctx.lineTo(holeX + holeW, holeY + holeH);
+  ctx.stroke();
+
+  // ---- CTA ----
   const pulse = 0.7 + Math.sin(titleAnim / 500) * 0.3;
   ctx.globalAlpha = pulse;
   ctx.fillStyle = COLORS.text;
-  ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('tap or press any key to start', w / 2, h * 0.7);
+  ctx.font = `${15 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('tap or press any key to start', w / 2, h * 0.56);
   ctx.globalAlpha = 1;
 
-  // High scores
+  // ---- Stats area ----
   const scores = loadHighScores();
-  if (scores.length > 0) {
+  const stats = loadStats();
+  ctx.textAlign = 'center';
+  ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
+
+  if (scores.length > 0 || stats.sessions > 0) {
+    const statY = h * 0.78;
+    const gap = 60 * s; // tighter spacing between columns
+    const cx = w / 2;
+
+    // High score
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText(scores.length > 0 ? scores[0].toLocaleString() : '—', cx - gap, statY);
     ctx.fillStyle = COLORS.textDim;
-    ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText('🏆 Best: 🧀' + scores[0], w / 2, h * 0.8);
+    ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('🏆 Best', cx - gap, statY + 14 * s);
+
+    // Total cheese
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText(stats.totalCheese.toLocaleString(), cx, statY);
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('🧀 Cheese', cx, statY + 14 * s);
+
+    // Sessions
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText(stats.sessions.toLocaleString(), cx + gap, statY);
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('🐭 Games', cx + gap, statY + 14 * s);
   }
 
-  // Controls hint
-  ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('swipe/tap (mobile) • arrows/space (desktop)', w / 2, h * 0.92);
+  // About link
+  ctx.fillStyle = COLORS.accent;
+  ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('About & How to Play', w / 2, h * 0.88);
+  const tw = ctx.measureText('About & How to Play').width;
+  ctx.strokeStyle = COLORS.accent;
+  ctx.lineWidth = 1 * s;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(w / 2 - tw / 2, h * 0.88 + 2 * s);
+  ctx.lineTo(w / 2 + tw / 2, h * 0.88 + 2 * s);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 function drawPauseOverlay() {
@@ -2279,6 +2656,206 @@ function drawGameOver() {
   ctx.globalAlpha = 1;
 }
 
+let aboutScrollY = 0;
+let aboutContentH = 0; // calculated total content height
+
+function drawAboutScreen(dt) {
+  const s = canvasScale;
+  const w = canvasW, h = canvasH;
+
+  // Background
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle warm glow
+  const g = ctx.createRadialGradient(w / 2, h * 0.3, 0, w / 2, h * 0.3, w * 0.5);
+  g.addColorStop(0, 'rgba(232,168,64,0.05)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  // Layout constants
+  const marginX = 28 * s;
+  const contentW = w - marginX * 2;
+  const bodyFontSize = 11 * s;
+  const headFontSize = 14 * s;
+  const titleFontSize = 22 * s;
+  const bodyLineH = 16 * s;
+  const headLineH = 20 * s;
+  const sectionGap = 22 * s;
+  const paraGap = 6 * s;
+  const clipTop = 14 * s;
+  const clipBottom = 30 * s;
+
+  let y = 36 * s - aboutScrollY;
+
+  // Clip region for scrolling
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, clipTop, w, h - clipTop - clipBottom);
+  ctx.clip();
+
+  // --- Helper functions ---
+  function wrapText(text, maxW, fontSize) {
+    ctx.font = `${fontSize}px 'Segoe UI', sans-serif`;
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line + (line ? ' ' : '') + word;
+      if (ctx.measureText(test).width > maxW && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function heading(text) {
+    y += sectionGap;
+    ctx.fillStyle = COLORS.accent;
+    ctx.font = `bold ${headFontSize}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, marginX, y);
+    y += headLineH * 0.6;
+  }
+
+  function body(text) {
+    const lines = wrapText(text, contentW, bodyFontSize);
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `${bodyFontSize}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'left';
+    for (const line of lines) {
+      y += bodyLineH;
+      ctx.fillText(line, marginX, y);
+    }
+    y += paraGap;
+  }
+
+  function dimBody(text) {
+    const lines = wrapText(text, contentW - 12 * s, bodyFontSize);
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${bodyFontSize}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'left';
+    for (const line of lines) {
+      y += bodyLineH;
+      ctx.fillText(line, marginX + 12 * s, y);
+    }
+  }
+
+  // --- Content ---
+
+  // Title
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${titleFontSize}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  y += titleFontSize;
+  ctx.fillText('MOUSETRIX', w / 2, y);
+  y += bodyLineH;
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('A cozy puzzle game where mice find their way home', w / 2, y);
+
+  heading('🐭 THE STORY');
+  body('Mice are scurrying through the walls of an old house, popping out of mouse holes and tumbling down to find cozy spots to settle. But watch out — a prowling cat lurks in the shadows, and cheese is scattered everywhere waiting to be collected!');
+
+  heading('🎮 CONTROLS');
+  body('Desktop: ← → to move, ↑ or X to rotate, Z for counter-rotate, ↓ for soft drop, Space for hard drop, C to hold piece, P to pause.');
+  body('Mobile: Swipe left/right to move, tap to rotate, swipe down to hard drop, tap top of screen to hold piece.');
+
+  heading('🧀 CHEESE');
+  body('Cheese spawns on the board starting at level 3. Three types:');
+  dimBody('• Cheddar (common) — 75 points');
+  dimBody('• Swiss (uncommon) — 150 points');
+  dimBody('• Golden (rare) — 500 points');
+  y += paraGap;
+  body('Collect cheese two ways: land a piece adjacent to it, or scoop it by dropping through it. Cheese that expires becomes a blocker cell and costs you 50 points!');
+
+  heading('🕳️ MOUSE HOLES');
+  body('Mice enter from holes on the sides of the board instead of the top. New holes unlock at higher levels, giving you more entry points but also more unpredictability.');
+
+  heading('🎨 COLOR CLUSTERS');
+  body('When 6 or more same-type cells connect across multiple pieces, they burrow away! Look for the colored glow around falling pieces and in the NEXT/HOLD previews to plan cluster chains. Cascading chains multiply your score.');
+
+  heading('🐱 THE CAT');
+  body('A cat prowls the board periodically, threatening mice in the top rows. It has three attack patterns:');
+  dimBody('• Cross — dashes across the board at varying heights');
+  dimBody('• Pounce — drops from above onto a target column');
+  dimBody('• Lurk — camps at one edge and swipes repeatedly');
+  y += paraGap;
+  body('Watch for glowing orange eyes as a warning! The cat gets faster and more frequent at higher levels.');
+
+  heading('💡 TACTICS');
+  body('• Keep the board low — the cat only threatens the top rows, so staying compact keeps you safe.');
+  body('• Plan clusters using the color glow — group same-type pieces together for powerful chain clears.');
+  body('• Collect cheese before it expires — the penalty hurts and blockers make building harder.');
+  body('• Use hold strategically — stash a piece for when you need a specific shape or color.');
+  body('• Watch the mouse hole highlight — it shows where your next piece will enter.');
+
+  heading('📈 SCORING');
+  dimBody('• Line clears: 100/300/500/800 × (level + 1)');
+  dimBody('• Cluster clear: 200 + 100×(extra cells) × cascade × (level + 1)');
+  dimBody('• Cheese: type value × (level + 1), scoop bonus is higher');
+  dimBody('• Combo bonus: 50 × combo count × (level + 1)');
+  dimBody('• Cheese penalty: -50 for expired reachable cheese');
+
+  y += sectionGap * 2;
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `italic ${11 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('☕ Created by Coffee Czar', w / 2, y);
+
+  // Track total content height
+  aboutContentH = y + aboutScrollY + 40 * s;
+
+  ctx.restore();
+
+  // Clamp scroll
+  const maxScroll = Math.max(0, aboutContentH - h + clipBottom);
+  if (aboutScrollY > maxScroll) aboutScrollY = maxScroll;
+  if (aboutScrollY < 0) aboutScrollY = 0;
+
+  // Top/bottom fade overlays
+  const fadeH = 20 * s;
+  const topFade = ctx.createLinearGradient(0, clipTop, 0, clipTop + fadeH);
+  topFade.addColorStop(0, COLORS.bg);
+  topFade.addColorStop(1, 'rgba(26,18,11,0)');
+  ctx.fillStyle = topFade;
+  ctx.fillRect(0, clipTop, w, fadeH);
+
+  const btmY = h - clipBottom;
+  const btmFade = ctx.createLinearGradient(0, btmY - fadeH, 0, btmY);
+  btmFade.addColorStop(0, 'rgba(26,18,11,0)');
+  btmFade.addColorStop(1, COLORS.bg);
+  ctx.fillStyle = btmFade;
+  ctx.fillRect(0, btmY - fadeH, w, fadeH);
+
+  // Dismiss hint (fixed at bottom)
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = 0.7 + Math.sin(Date.now() / 500) * 0.3;
+  ctx.fillText('tap or press any key to go back', w / 2, h - 10 * s);
+  ctx.globalAlpha = 1;
+
+  // Scroll bar
+  if (maxScroll > 0) {
+    const barTop = clipTop + 4 * s;
+    const barH = h - clipTop - clipBottom - 8 * s;
+    const thumbH = Math.max(20 * s, barH * (h / aboutContentH));
+    const thumbY = barTop + (aboutScrollY / maxScroll) * (barH - thumbH);
+    ctx.fillStyle = 'rgba(168,144,112,0.25)';
+    ctx.beginPath();
+    ctx.arc(w - 4 * s, thumbY + 2 * s, 2 * s, Math.PI, 0);
+    ctx.arc(w - 4 * s, thumbY + thumbH - 2 * s, 2 * s, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 // ============================================================
 //  GAME LOOP
 // ============================================================
@@ -2286,21 +2863,25 @@ let lastTime = 0;
 
 function requestFullscreen() {
   const el = document.documentElement;
-  const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-  if (rfs) {
-    rfs.call(el).then(() => {
-      // Re-layout after fullscreen change
-      setTimeout(resizeCanvas, 100);
-    }).catch(() => {});
-  }
+  try {
+    if (el.requestFullscreen) {
+      el.requestFullscreen({ navigationUI: 'hide' });
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  } catch (e) { /* ignore */ }
+  // Also lock orientation if available
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('portrait').catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
+  setTimeout(resizeCanvas, 200);
 }
 
 function startGame() {
   initAudio();
-  // Request fullscreen on mobile devices
-  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-    requestFullscreen();
-  }
+  stopTitleMusic();
   newGame();
   screen = 'game';
   if (musicEnabled) startMusic();
@@ -3091,6 +3672,13 @@ function draw(dt) {
 
   if (screen === 'title') {
     drawTitleScreen(dt);
+    drawVolumeButton();
+    return;
+  }
+
+  if (screen === 'about') {
+    drawAboutScreen(dt);
+    drawVolumeButton();
     return;
   }
 
@@ -3106,6 +3694,170 @@ function draw(dt) {
 
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'gameover') drawGameOver();
+  drawVolumeButton();
+}
+
+// ============================================================
+//  VOLUME / MUTE BUTTON
+// ============================================================
+function getVolumeButtonRect() {
+  const s = canvasScale;
+  const size = 32 * s;
+  return { x: canvasW - size - 8 * s, y: canvasH - size - 8 * s, w: size, h: size };
+}
+
+function getVolumeFlyoutRects() {
+  const s = canvasScale;
+  const btn = getVolumeButtonRect();
+  const itemH = 30 * s;
+  const itemW = 100 * s;
+  const x = btn.x + btn.w - itemW;
+  return {
+    sfx: { x, y: btn.y - itemH * 2 - 8 * s, w: itemW, h: itemH },
+    music: { x, y: btn.y - itemH - 4 * s, w: itemW, h: itemH },
+  };
+}
+
+function drawVolumeButton() {
+  const s = canvasScale;
+  const btn = getVolumeButtonRect();
+  const allMuted = !sfxEnabled && !musicEnabled;
+
+  // Button background
+  ctx.fillStyle = 'rgba(13,9,6,0.6)';
+  ctx.strokeStyle = COLORS.frameLt;
+  ctx.lineWidth = 1.5 * s;
+  const r = 6 * s;
+  ctx.beginPath();
+  ctx.moveTo(btn.x + r, btn.y);
+  ctx.lineTo(btn.x + btn.w - r, btn.y);
+  ctx.arcTo(btn.x + btn.w, btn.y, btn.x + btn.w, btn.y + r, r);
+  ctx.lineTo(btn.x + btn.w, btn.y + btn.h - r);
+  ctx.arcTo(btn.x + btn.w, btn.y + btn.h, btn.x + btn.w - r, btn.y + btn.h, r);
+  ctx.lineTo(btn.x + r, btn.y + btn.h);
+  ctx.arcTo(btn.x, btn.y + btn.h, btn.x, btn.y + btn.h - r, r);
+  ctx.lineTo(btn.x, btn.y + r);
+  ctx.arcTo(btn.x, btn.y, btn.x + r, btn.y, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Speaker icon
+  const cx = btn.x + btn.w / 2;
+  const cy = btn.y + btn.h / 2;
+  const iconS = 8 * s;
+  ctx.fillStyle = allMuted ? COLORS.danger : COLORS.text;
+  ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(allMuted ? '🔇' : '🔊', cx, cy);
+  ctx.textBaseline = 'alphabetic';
+
+  // Flyout
+  if (volumeFlyoutOpen) {
+    const rects = getVolumeFlyoutRects();
+
+    // Flyout background
+    const flyX = rects.sfx.x - 4 * s;
+    const flyY = rects.sfx.y - 4 * s;
+    const flyW = rects.sfx.w + 8 * s;
+    const flyH = (rects.music.y + rects.music.h) - rects.sfx.y + 8 * s;
+    ctx.fillStyle = 'rgba(26,18,11,0.9)';
+    ctx.strokeStyle = COLORS.frameLt;
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.moveTo(flyX + r, flyY);
+    ctx.lineTo(flyX + flyW - r, flyY);
+    ctx.arcTo(flyX + flyW, flyY, flyX + flyW, flyY + r, r);
+    ctx.lineTo(flyX + flyW, flyY + flyH - r);
+    ctx.arcTo(flyX + flyW, flyY + flyH, flyX + flyW - r, flyY + flyH, r);
+    ctx.lineTo(flyX + r, flyY + flyH);
+    ctx.arcTo(flyX, flyY + flyH, flyX, flyY + flyH - r, r);
+    ctx.lineTo(flyX, flyY + r);
+    ctx.arcTo(flyX, flyY, flyX + r, flyY, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // SFX toggle
+    drawToggleRow(rects.sfx, '🔈 SFX', sfxEnabled, s);
+    // Music toggle
+    drawToggleRow(rects.music, '🎵 Music', musicEnabled, s);
+
+    // Auto-close timer
+    volumeFlyoutTimer -= 16;
+    if (volumeFlyoutTimer <= 0) volumeFlyoutOpen = false;
+  }
+}
+
+function drawToggleRow(rect, label, enabled, s) {
+  // Row background on hover feel
+  ctx.fillStyle = enabled ? 'rgba(123,198,126,0.15)' : 'rgba(224,80,80,0.1)';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+  // Label
+  ctx.fillStyle = enabled ? COLORS.text : COLORS.textDim;
+  ctx.font = `${10 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, rect.x + 6 * s, rect.y + rect.h / 2 + 4 * s);
+
+  // Toggle indicator
+  const toggleX = rect.x + rect.w - 20 * s;
+  const toggleY = rect.y + rect.h / 2;
+  const toggleW = 16 * s;
+  const toggleH = 9 * s;
+  ctx.fillStyle = enabled ? '#7bc67e' : '#5a4030';
+  ctx.beginPath();
+  ctx.arc(toggleX, toggleY, toggleH / 2, Math.PI / 2, Math.PI * 1.5);
+  ctx.arc(toggleX + toggleW, toggleY, toggleH / 2, Math.PI * 1.5, Math.PI / 2);
+  ctx.closePath();
+  ctx.fill();
+  // Toggle knob
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  const knobX = enabled ? toggleX + toggleW : toggleX;
+  ctx.arc(knobX, toggleY, toggleH / 2 - 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function handleVolumeClick(clientX, clientY) {
+  // Convert client coords to canvas coords
+  const canvasRect = canvas.getBoundingClientRect();
+  const x = (clientX - canvasRect.left) * (canvasW / canvasRect.width);
+  const y = (clientY - canvasRect.top) * (canvasH / canvasRect.height);
+
+  const btn = getVolumeButtonRect();
+
+  // Check flyout items first if open
+  if (volumeFlyoutOpen) {
+    const rects = getVolumeFlyoutRects();
+    if (x >= rects.sfx.x && x <= rects.sfx.x + rects.sfx.w &&
+        y >= rects.sfx.y && y <= rects.sfx.y + rects.sfx.h) {
+      sfxEnabled = !sfxEnabled;
+      volumeFlyoutTimer = 3000;
+      return true;
+    }
+    if (x >= rects.music.x && x <= rects.music.x + rects.music.w &&
+        y >= rects.music.y && y <= rects.music.y + rects.music.h) {
+      musicEnabled = !musicEnabled;
+      if (!musicEnabled) { stopMusic(); stopTitleMusic(); }
+      else if (screen === 'title') startTitleMusic();
+      else if (game && game.state === 'playing') startMusic();
+      volumeFlyoutTimer = 3000;
+      return true;
+    }
+    // Click outside flyout closes it
+    volumeFlyoutOpen = false;
+    return false;
+  }
+
+  // Check main button
+  if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+    volumeFlyoutOpen = true;
+    volumeFlyoutTimer = 4000; // auto-close after 4s
+    return true;
+  }
+  return false;
 }
 
 function gameLoop(time) {
@@ -3122,7 +3874,39 @@ function gameLoop(time) {
 window.addEventListener('resize', resizeCanvas);
 document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 100));
 document.addEventListener('webkitfullscreenchange', () => setTimeout(resizeCanvas, 100));
+canvas.addEventListener('click', e => {
+  initAudio();
+  if (handleVolumeClick(e.clientX, e.clientY)) return;
+  if (screen === 'about') { screen = 'title'; return; }
+  if (screen === 'title') {
+    const rect = canvas.getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+    if (relY > 0.82 && relY < 0.94) {
+      screen = 'about';
+      aboutScrollY = 0;
+    }
+  }
+});
+canvas.addEventListener('wheel', e => {
+  if (screen === 'about') {
+    e.preventDefault();
+    aboutScrollY += e.deltaY;
+    if (aboutScrollY < 0) aboutScrollY = 0;
+  }
+}, { passive: false });
 resizeCanvas();
+// Eagerly create AudioContext (may start suspended due to browser autoplay policy)
+initAudio();
+// Resume audio on very first user interaction (click, touch, or keypress)
+function resumeAudioOnGesture() {
+  initAudio();
+  document.removeEventListener('click', resumeAudioOnGesture, true);
+  document.removeEventListener('touchstart', resumeAudioOnGesture, true);
+  document.removeEventListener('keydown', resumeAudioOnGesture, true);
+}
+document.addEventListener('click', resumeAudioOnGesture, true);
+document.addEventListener('touchstart', resumeAudioOnGesture, true);
+document.addEventListener('keydown', resumeAudioOnGesture, true);
 requestAnimationFrame(gameLoop);
 
 </script>
