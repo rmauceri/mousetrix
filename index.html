@@ -39,13 +39,13 @@ const COLS = 10;
 const ROWS = 20;
 const CELL = 28;                       // base cell size in px (scaled to fit)
 const PREVIEW_CELL = 16;
-const LOCK_DELAY = 500;                // ms before piece locks after landing
+const LOCK_DELAY = 400;                // ms before piece locks after landing
 const DAS_INITIAL = 170;               // ms before auto-repeat starts
 const DAS_REPEAT = 50;                 // ms between auto-repeat moves
-const LINES_PER_LEVEL = 10;
+const LINES_PER_LEVEL = 7;
 const GRAVITY_TABLE = [                // ms per row drop, by level
-  1000, 793, 618, 473, 355, 262, 190, 135, 94, 64,
-  43, 28, 18, 12, 8, 5, 3, 2, 1, 1
+  800, 650, 500, 380, 280, 200, 140, 95, 64, 43,
+  28, 18, 12, 8, 5, 3, 2, 1, 1, 1
 ];
 
 const COLORS = {
@@ -689,7 +689,7 @@ function newGame() {
     cat: {
       phase: 'idle',    // 'idle' | 'warning' | 'prowl' | 'cooldown'
       timer: 0,
-      nextAppear: CAT_MIN_INTERVAL + Math.random() * (CAT_MAX_INTERVAL - CAT_MIN_INTERVAL),
+      nextAppear: 10000 + Math.random() * 8000, // first cat appears earlier
       direction: 1,     // 1 = left-to-right, -1 = right-to-left
       batted: false,
       attack: 'cross',  // 'cross' | 'pounce' | 'lurk'
@@ -3013,7 +3013,7 @@ function updateCat(dt) {
     if (cat.timer >= 500) {
       cat.phase = 'idle';
       cat.timer = 0;
-      const levelFactor = Math.max(0.5, 1 - game.level * 0.04);
+      const levelFactor = Math.max(0.3, 1 - game.level * 0.08);
       cat.nextAppear = (CAT_MIN_INTERVAL + Math.random() * (CAT_MAX_INTERVAL - CAT_MIN_INTERVAL)) * levelFactor;
     }
   }
