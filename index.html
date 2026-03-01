@@ -705,6 +705,10 @@ function newGame() {
     clusterPhase: 0,        // 0=shimmer, 1=clear
     clusterTimer: 0,
     cascadeCount: 0,
+    clusterLines: 0,        // fractional line credit from clusters
+    // Level-up banner
+    levelBanner: 0,         // timer for level-up banner display
+    levelBannerNum: 0,      // which level to show
   };
   fillBag();
   game.next = spawnPiece();
@@ -1098,7 +1102,8 @@ function checkLines() {
     game.level = Math.floor(game.lines / LINES_PER_LEVEL);
     if (game.level > levelBefore) {
       sfxLevelUp();
-      // Theme hook: could swap currentTheme here based on level
+      game.levelBanner = 2000;
+      game.levelBannerNum = game.level + 1;
     }
   } else {
     game.combo = 0;
@@ -1198,6 +1203,20 @@ function checkClusters() {
   game.clusterPhase = 0;
   game.clusterTimer = 0;
   game.state = 'cluster_clearing';
+  // Cluster cells contribute fractional line progress (10 cells = 1 line)
+  game.clusterLines += allCells.length / 10;
+  const clusterLineCredit = Math.floor(game.clusterLines);
+  if (clusterLineCredit > 0) {
+    game.clusterLines -= clusterLineCredit;
+    const levelBefore = game.level;
+    game.lines += clusterLineCredit;
+    game.level = Math.floor(game.lines / LINES_PER_LEVEL);
+    if (game.level > levelBefore) {
+      sfxLevelUp();
+      game.levelBanner = 2000;
+      game.levelBannerNum = game.level + 1;
+    }
+  }
   // Score feedback
   const avgRow = allCells.reduce((s, c) => s + c.row, 0) / allCells.length;
   const avgCol = allCells.reduce((s, c) => s + c.col, 0) / allCells.length;
@@ -1871,9 +1890,11 @@ function drawCheese(col, row, cheese) {
   const s = canvasScale;
   const x = playX + (col + 0.5) * CELL * s;
   const y = playY + (row + 0.5) * CELL * s;
-  const r = CELL * s * 0.35;
   const typeDef = CHEESE_TYPES[cheese.type];
   const freshRatio = cheese.freshness / CHEESE_DECAY_TIME;
+  // Cheese shrinks as it ages (100% → 70% size)
+  const sizeScale = 0.7 + freshRatio * 0.3;
+  const r = CELL * s * 0.35 * sizeScale;
 
   ctx.save();
   // Cheese wedge (triangle)
@@ -1923,6 +1944,16 @@ function drawCheese(col, row, cheese) {
       ctx.quadraticCurveTo(x + ox + wave, y - r * 1.5, x + ox, y - r * 2);
       ctx.stroke();
     }
+  }
+  // Timer ring when urgently decaying (< 40%)
+  if (freshRatio < 0.4) {
+    const ringAlpha = (1 - freshRatio / 0.4) * 0.6;
+    ctx.globalAlpha = ringAlpha;
+    ctx.strokeStyle = freshRatio < 0.15 ? COLORS.danger : '#c08030';
+    ctx.lineWidth = 2 * s;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * freshRatio / 0.4);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -2896,8 +2927,8 @@ function drawTitleScreen(dt) {
   ctx.fillStyle = aboutHover ? '#fff' : COLORS.accent;
   ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('About & How to Play', w / 2, h * 0.88);
-  const tw = ctx.measureText('About & How to Play').width;
+  ctx.fillText('How to Play', w / 2, h * 0.88);
+  const tw = ctx.measureText('How to Play').width;
   ctx.strokeStyle = aboutHover ? '#fff' : COLORS.accent;
   ctx.lineWidth = 1 * s;
   ctx.globalAlpha = aboutHover ? 0.9 : 0.5;
@@ -3133,53 +3164,37 @@ function drawAboutScreen(dt) {
   ctx.font = `bold ${titleFontSize}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
   y += titleFontSize;
-  ctx.fillText('MOUSETRIX', w / 2, y);
+  ctx.fillText('HOW TO PLAY', w / 2, y);
   y += bodyLineH;
   ctx.fillStyle = COLORS.textDim;
   ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('A cozy puzzle game where mice find their way home', w / 2, y);
-
-  heading('🐭 THE STORY');
-  body('Mice are scurrying through the walls of an old house, popping out of mouse holes and tumbling down to find cozy spots to settle. But watch out — a prowling cat lurks in the shadows, and cheese is scattered everywhere waiting to be collected!');
+  ctx.fillText('A cozy mouse-themed puzzle game', w / 2, y);
 
   heading('🎮 CONTROLS');
-  body('Desktop: ← → to move, ↑ or X to rotate, Z for counter-rotate, ↓ for soft drop, Space for hard drop, C to hold piece, P to pause.');
-  body('Mobile: Swipe left/right to move, tap to rotate, swipe down to hard drop, tap top of screen to hold piece.');
+  body('Desktop: ← → move, ↑ rotate, Z reverse rotate, ↓ soft drop, Space hard drop, C hold, P pause.');
+  body('Mobile: Swipe left/right to move, tap to rotate, swipe down to drop, tap top to hold.');
 
   heading('🧀 CHEESE');
-  body('Cheese spawns on the board starting at level 3. Three types:');
-  dimBody('• Cheddar (common) — 75 points');
-  dimBody('• Swiss (uncommon) — 150 points');
-  dimBody('• Golden (rare) — 500 points');
-  y += paraGap;
-  body('Collect cheese two ways: land a piece adjacent to it, or scoop it by dropping through it. Cheese that expires becomes a blocker cell and costs you 50 points!');
-
-  heading('🕳️ MOUSE HOLES');
-  body('Mice enter from holes on the sides of the board instead of the top. New holes unlock at higher levels, giving you more entry points but also more unpredictability.');
+  body('Cheese appears on the board. Land a piece next to it or drop through it to collect. Watch the timer ring — expired cheese becomes a blocker!');
+  dimBody('• Cheddar 75 pts  • Swiss 150 pts  • Golden 500 pts');
 
   heading('🎨 COLOR CLUSTERS');
-  body('When 6 or more same-type cells connect across multiple pieces, they burrow away! Look for the colored glow around falling pieces and in the NEXT/HOLD previews to plan cluster chains. Cascading chains multiply your score.');
+  body('When 6+ same-color cells connect, they clear and count toward leveling up! Watch the colored glow on pieces to plan combos. Cascading chains multiply your score.');
 
   heading('🐱 THE CAT');
-  body('A cat prowls the board periodically, threatening mice in the top rows. It has three attack patterns:');
-  dimBody('• Cross — dashes across the board at varying heights');
-  dimBody('• Pounce — drops from above onto a target column');
-  dimBody('• Lurk — camps at one edge and swipes repeatedly');
-  y += paraGap;
-  body('Watch for glowing orange eyes as a warning! The cat gets faster and more frequent at higher levels.');
+  body('A cat prowls the top of the board. Watch for glowing eyes — it attacks with crosses, pounces, and lurks. Getting swatted costs points! It gets faster at higher levels. Keep your board low to stay safe.');
 
-  heading('💡 TACTICS');
-  body('• Keep the board low — the cat only threatens the top rows, so staying compact keeps you safe.');
-  body('• Plan clusters using the color glow — group same-type pieces together for powerful chain clears.');
-  body('• Collect cheese before it expires — the penalty hurts and blockers make building harder.');
-  body('• Use hold strategically — stash a piece for when you need a specific shape or color.');
-  body('• Watch the mouse hole highlight — it shows where your next piece will enter.');
+  heading('💡 TIPS');
+  body('• Group same-color pieces for chain clears.');
+  body('• Collect cheese before it expires — penalties add up.');
+  body('• Use hold to save a piece for when you need it.');
 
   heading('📈 SCORING');
   dimBody('• Line clears: 100/300/500/800 × (level + 1)');
   dimBody('• Cluster clear: 200 + 100×(extra cells) × cascade × (level + 1)');
   dimBody('• Cheese: type value × (level + 1), scoop bonus is higher');
   dimBody('• Combo bonus: 50 × combo count × (level + 1)');
+  dimBody('• Cat swat penalty: -25 per cell moved');
   dimBody('• Cheese penalty: -50 for expired reachable cheese');
 
   y += sectionGap * 2;
@@ -3415,9 +3430,11 @@ function updateCatPounce(dt, cat) {
             cat.batted = true;
             updateGhost();
             sfxCatSwipe();
+            const penalty = moved * 25;
+            game.score = Math.max(0, game.score - penalty);
             game.cheeseEffects.push({
               kind: 'text',
-              text: '🐱 POUNCE!',
+              text: `🐱 POUNCE! -${penalty}`,
               col: p.col + 1, row: Math.max(0, p.row - 1),
               timer: 0, duration: 900,
               color: '#ff4040',
@@ -3480,7 +3497,9 @@ function updateCatLurk(dt, cat) {
           updateGhost();
           sfxCatSwipe();
           game.screenFlash = 120;
-          const label = cat.lurkSwipes > 1 ? `🐱 SWAT x${cat.lurkSwipes}!` : '🐱 SWAT!';
+          const penalty = moved * 25;
+          game.score = Math.max(0, game.score - penalty);
+          const label = cat.lurkSwipes > 1 ? `🐱 SWAT x${cat.lurkSwipes}! -${penalty}` : `🐱 SWAT! -${penalty}`;
           game.cheeseEffects.push({
             kind: 'text',
             text: label,
@@ -3532,9 +3551,11 @@ function catTryBat(cat, catCol, catRow, dt) {
       updateGhost();
       sfxCatSwipe();
       game.screenFlash = 150;
+      const penalty = moved * 25;
+      game.score = Math.max(0, game.score - penalty);
       game.cheeseEffects.push({
         kind: 'text',
-        text: '🐱 SWAT!',
+        text: `🐱 SWAT! -${penalty}`,
         col: p.col + 1, row: Math.max(0, p.row - 1),
         timer: 0, duration: 800,
         color: '#ff6060',
@@ -3557,6 +3578,7 @@ function update(dt) {
   }
   if (game.hoardBump > 0) game.hoardBump = Math.max(0, game.hoardBump - dt);
   if (game.screenFlash > 0) game.screenFlash = Math.max(0, game.screenFlash - dt);
+  if (game.levelBanner > 0) game.levelBanner = Math.max(0, game.levelBanner - dt);
   // Cat idle timer ticks even during clearing (real-time schedule)
   if (game.cat.phase === 'idle') game.cat.timer += dt;
 
@@ -4099,12 +4121,74 @@ function draw(dt) {
   drawCurrentPiece();
   drawCheeseEffects();
   drawHUD();
+  drawLevelBanner();
+  drawDangerBorder();
 
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'exit_confirm') drawExitConfirm();
   if (game.state === 'gameover') drawGameOver();
   drawExitButton();
   drawVolumeButton(dt);
+}
+
+// ============================================================
+//  LEVEL-UP BANNER
+// ============================================================
+function drawLevelBanner() {
+  if (!game || game.levelBanner <= 0) return;
+  const s = canvasScale;
+  const t = game.levelBanner;
+  const fadeIn = Math.min(1, (2000 - t) / 300); // fade in over 300ms
+  const fadeOut = Math.min(1, t / 500);          // fade out over 500ms
+  const alpha = Math.min(fadeIn, fadeOut);
+  const scale = 1 + (1 - fadeIn) * 0.3;         // slight zoom-in at start
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const cx = playX + (COLS * CELL * s) / 2;
+  const cy = playY + (ROWS * CELL * s) * 0.35;
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.translate(-cx, -cy);
+
+  // Glow
+  ctx.shadowColor = COLORS.accent;
+  ctx.shadowBlur = 20 * s;
+  ctx.fillStyle = COLORS.accent;
+  ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`⭐ Level ${game.levelBannerNum}!`, cx, cy);
+  ctx.shadowBlur = 0;
+  ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+}
+
+// ============================================================
+//  DANGER ZONE BORDER
+// ============================================================
+function drawDangerBorder() {
+  if (!game || game.state !== 'playing') return;
+  const highest = getHighestOccupiedRow();
+  if (highest >= 4 || highest < 0) return;
+  const s = canvasScale;
+  const intensity = 1 - highest / 4;
+  const pulse = 0.5 + Math.sin(Date.now() / 250) * 0.5;
+  const alpha = (0.15 + intensity * 0.35) * pulse;
+  const pw = COLS * CELL * s;
+  const ph = ROWS * CELL * s;
+  const borderW = Math.max(2, 3 * s);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = COLORS.danger;
+  ctx.lineWidth = borderW;
+  ctx.strokeRect(playX - borderW / 2, playY - borderW / 2, pw + borderW, ph + borderW);
+  // Top edge extra glow
+  ctx.globalAlpha = alpha * 0.6;
+  ctx.fillStyle = COLORS.danger;
+  ctx.fillRect(playX, playY, pw, (4 - highest) * CELL * s);
+  ctx.restore();
 }
 
 // ============================================================
