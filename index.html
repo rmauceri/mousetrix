@@ -10,7 +10,7 @@
 html, body {
   width: 100%; height: 100%;
   overflow: hidden;
-  background: #1a120b;
+  background: #143d5e;
   font-family: 'Segoe UI', system-ui, sans-serif;
   touch-action: none;
   user-select: none;
@@ -49,16 +49,16 @@ const GRAVITY_TABLE = [                // ms per row drop, by level
 ];
 
 const COLORS = {
-  bg:       '#1a120b',
-  frame:    '#3d2b1a',
-  frameLt:  '#5a4030',
-  grid:     'rgba(245,214,138,0.12)',
-  gridBg:   '#0d0906',
+  bg:       '#143d5e',
+  frame:    '#6b3a1a',
+  frameLt:  '#8b5a2a',
+  grid:     'rgba(140,180,220,0.10)',
+  gridBg:   '#0c2a42',
   text:     '#f5d68a',
-  textDim:  '#a89070',
+  textDim:  '#a0b8c8',
   accent:   '#e8a840',
   danger:   '#e05050',
-  ghost:    'rgba(245,214,138,0.18)',
+  ghost:    'rgba(140,180,220,0.18)',
   white:    '#f5f0e8',
 };
 
@@ -68,15 +68,15 @@ const COLORS = {
 const THEMES = {
   cozy: {
     name: 'Cozy Burrow',
-    bg: '#1a120b',
-    frameFill: '#3d2b1a',
-    gridBg: '#0d0906',
-    gridLine: 'rgba(245,214,138,0.10)',
+    bg: '#143d5e',
+    frameFill: '#6b3a1a',
+    gridBg: '#0c2a42',
+    gridLine: 'rgba(140,180,220,0.08)',
     palette: { ...COLORS },
-    furColors: null,           // uses default piece fur colors
-    cellDeco: null,            // no extra decoration
-    music: null,               // default melody
-    rowClearFx: null,          // default scatter
+    furColors: null,
+    cellDeco: null,
+    music: null,
+    rowClearFx: null,
   },
   // Future themes added here:
   // garden: { name: 'Garden', bg: '#1a2e1a', ... },
@@ -142,13 +142,13 @@ const CLUSTER_SHIMMER_TIME = 400;      // ms shimmer before clear
 const CLUSTER_CLEAR_TIME = 400;        // ms clear animation
 
 const PIECE_COLORS = {
-  I: '#6ec6e6',   // sky blue
-  O: '#f5d68a',   // warm yellow
-  T: '#b07ee8',   // purple
-  S: '#7bc67e',   // green
-  Z: '#e07070',   // coral red
-  L: '#e8a840',   // orange
-  J: '#5080d0',   // blue
+  I: '#40c8e0',   // cyan
+  O: '#f0c840',   // golden yellow
+  T: '#c060e8',   // vivid purple
+  S: '#50c850',   // vivid green
+  Z: '#e84040',   // bright red
+  L: '#f09030',   // vivid orange
+  J: '#4080e0',   // bright blue
 };
 
 // 2-3 distinct fur colors per piece type for multi-mouse compositions
@@ -279,6 +279,8 @@ let sfxEnabled = true;
 let musicEnabled = true;
 let volumeFlyoutOpen = false;
 let volumeFlyoutTimer = 0; // auto-close timer
+let hoverX = -1, hoverY = -1; // mouse cursor position (relative 0-1) for hover effects
+let hoverCX = -1, hoverCY = -1; // mouse cursor in canvas coords for rect hit testing
 
 function initAudio() {
   if (audioCtx) {
@@ -1335,6 +1337,7 @@ document.addEventListener('keydown', e => {
     if (game && screen === 'game') {
       if (game.state === 'playing') { game.state = 'paused'; stopMusic(); }
       else if (game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); }
+      else if (game.state === 'exit_confirm') { game.state = 'playing'; if (musicEnabled) startMusic(); }
     }
   }
   if (game && game.state === 'gameover' && e.key === 'Enter') {
@@ -1381,6 +1384,7 @@ canvas.addEventListener('touchstart', e => {
   }
   if (game && game.state === 'gameover') { requestFullscreen(); startGame(); return; }
   if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
+  if (game && game.state === 'exit_confirm') return; // handled by handleExitClick
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
   touchStartTime = Date.now();
@@ -1936,7 +1940,7 @@ function drawMouseHoles() {
     const archR = hw;            // radius for arch top
 
     // Cartoon mouse hole: square base + half-circle arch on top
-    ctx.fillStyle = '#0a0705';
+    ctx.fillStyle = '#081828';
     ctx.beginPath();
     // Start bottom-left, go up left side, arch across top, down right side
     ctx.moveTo(holeX - hw, holeY + hh);
@@ -1958,8 +1962,8 @@ function drawMouseHoles() {
 
     // Inner shadow for depth
     const shadowGrad = ctx.createRadialGradient(holeX, holeY, hw * 0.2, holeX, holeY, hw * 1.2);
-    shadowGrad.addColorStop(0, 'rgba(10,7,5,0.8)');
-    shadowGrad.addColorStop(1, 'rgba(10,7,5,0)');
+    shadowGrad.addColorStop(0, 'rgba(8,24,40,0.8)');
+    shadowGrad.addColorStop(1, 'rgba(8,24,40,0)');
     ctx.fillStyle = shadowGrad;
     ctx.beginPath();
     ctx.moveTo(holeX - hw, holeY + hh);
@@ -2416,6 +2420,237 @@ let cachedTitleScores = null;
 let cachedTitleStats = null;
 let titleAnim = 0;
 
+function drawHeroMouse(cx, cy, size) {
+  const r = size * 0.42; // body radius — bigger
+
+  // Shadow under mouse
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.05, cy + r * 1.05, r * 0.8, r * 0.15, 0.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tail — long curly, drawn behind body
+  ctx.strokeStyle = '#b09888';
+  ctx.lineWidth = size * 0.03;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.35, cy + r * 0.8);
+  ctx.bezierCurveTo(cx + r * 1.0, cy + r * 0.3, cx + r * 0.5, cy - r * 0.2, cx + r * 0.9, cy - r * 0.4);
+  ctx.stroke();
+  // Tail tip curl
+  ctx.lineWidth = size * 0.02;
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.9, cy - r * 0.48, r * 0.08, Math.PI * 0.5, Math.PI * 2);
+  ctx.stroke();
+
+  // Body — round and plump, slightly tilted
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(0.04); // slight mischievous tilt
+  ctx.translate(-cx, -cy);
+
+  ctx.fillStyle = '#b8a898';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + r * 0.08, r * 0.92, r * 1.0, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Body highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.15, cy - r * 0.15, r * 0.5, r * 0.6, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Belly — cream colored
+  ctx.fillStyle = '#e0d4c8';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + r * 0.22, r * 0.58, r * 0.65, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Left ear (big, expressive)
+  ctx.fillStyle = '#a89888';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.42, r * 0.52, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8a0a0';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.26, r * 0.36, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Right ear (slightly perked up — mischievous)
+  ctx.fillStyle = '#a89888';
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.40, r * 0.55, 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8a0a0';
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.24, r * 0.38, 0.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head — larger for expressiveness
+  ctx.fillStyle = '#b8a898';
+  ctx.beginPath();
+  ctx.arc(cx, cy - r * 0.28, r * 0.56, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes — bigger, asymmetric for mischief (left squinting, right wide)
+  // Left eye (slightly squinted — sly)
+  ctx.fillStyle = '#f8f4f0';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.22, cy - r * 0.38, r * 0.12, r * 0.10, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.20, cy - r * 0.37, r * 0.08, r * 0.09, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Right eye (wider — scheming)
+  ctx.fillStyle = '#f8f4f0';
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.22, cy - r * 0.40, r * 0.14, r * 0.13, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.23, cy - r * 0.39, r * 0.09, r * 0.10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye highlights (sparkle)
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.17, cy - r * 0.41, r * 0.04, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.26, cy - r * 0.43, r * 0.045, 0, Math.PI * 2);
+  ctx.fill();
+  // Raised eyebrow on right side (mischievous!)
+  ctx.strokeStyle = '#8a7a6a';
+  ctx.lineWidth = size * 0.02;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.10, cy - r * 0.54);
+  ctx.quadraticCurveTo(cx + r * 0.25, cy - r * 0.62, cx + r * 0.38, cy - r * 0.52);
+  ctx.stroke();
+
+  // Nose — plump pink
+  ctx.fillStyle = '#e88090';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - r * 0.20, r * 0.08, r * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Nose highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.02, cy - r * 0.22, r * 0.025, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mouth — sly smirk (asymmetric, higher on right)
+  ctx.strokeStyle = '#7a6a5a';
+  ctx.lineWidth = size * 0.018;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.10, cy - r * 0.11);
+  ctx.quadraticCurveTo(cx + r * 0.02, cy - r * 0.06, cx + r * 0.14, cy - r * 0.14);
+  ctx.stroke();
+  // Cheeky dimple on smirk side
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.16, cy - r * 0.13, r * 0.02, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Whiskers — 3 per side, longer
+  ctx.strokeStyle = '#c8b8a8';
+  ctx.lineWidth = size * 0.008;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.12, cy - r * 0.22);
+  ctx.lineTo(cx - r * 0.62, cy - r * 0.35);
+  ctx.moveTo(cx - r * 0.13, cy - r * 0.17);
+  ctx.lineTo(cx - r * 0.62, cy - r * 0.17);
+  ctx.moveTo(cx - r * 0.12, cy - r * 0.12);
+  ctx.lineTo(cx - r * 0.58, cy - r * 0.02);
+  ctx.moveTo(cx + r * 0.12, cy - r * 0.22);
+  ctx.lineTo(cx + r * 0.62, cy - r * 0.35);
+  ctx.moveTo(cx + r * 0.13, cy - r * 0.17);
+  ctx.lineTo(cx + r * 0.62, cy - r * 0.17);
+  ctx.moveTo(cx + r * 0.12, cy - r * 0.12);
+  ctx.lineTo(cx + r * 0.58, cy - r * 0.02);
+  ctx.stroke();
+
+  // Arms/paws — reaching toward cheese
+  ctx.fillStyle = '#b0a090';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.30, cy + r * 0.48, r * 0.14, r * 0.10, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.30, cy + r * 0.48, r * 0.14, r * 0.10, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Paw pads
+  ctx.fillStyle = '#e0b8b8';
+  for (const px of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(cx + px * r * 0.30, cy + r * 0.50, r * 0.035, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Cheese wedge — bigger, more detailed
+  const chX = cx;
+  const chY = cy + r * 0.58;
+  const chR = r * 0.42;
+  // Cheese body
+  ctx.fillStyle = '#f0c840';
+  ctx.beginPath();
+  ctx.moveTo(chX, chY - chR * 0.8);
+  ctx.lineTo(chX + chR * 1.3, chY + chR * 0.5);
+  ctx.lineTo(chX - chR * 1.3, chY + chR * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  // Cheese side face (3D effect)
+  ctx.fillStyle = '#d8a830';
+  ctx.beginPath();
+  ctx.moveTo(chX + chR * 1.3, chY + chR * 0.5);
+  ctx.lineTo(chX - chR * 1.3, chY + chR * 0.5);
+  ctx.lineTo(chX - chR * 1.2, chY + chR * 0.7);
+  ctx.lineTo(chX + chR * 1.2, chY + chR * 0.7);
+  ctx.closePath();
+  ctx.fill();
+  // Rind line
+  ctx.strokeStyle = '#b88818';
+  ctx.lineWidth = size * 0.012;
+  ctx.beginPath();
+  ctx.moveTo(chX - chR * 1.3, chY + chR * 0.5);
+  ctx.lineTo(chX + chR * 1.3, chY + chR * 0.5);
+  ctx.stroke();
+  // Swiss holes
+  ctx.fillStyle = '#d4a820';
+  const holes = [[-0.3, 0.0, 0.14], [0.25, 0.15, 0.11], [0.55, 0.32, 0.08], [-0.6, 0.3, 0.09], [0.0, 0.25, 0.07]];
+  for (const [hx, hy, hr] of holes) {
+    ctx.beginPath();
+    ctx.arc(chX + chR * hx, chY + chR * hy, chR * hr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Cheese highlight
+  ctx.fillStyle = 'rgba(255,255,220,0.15)';
+  ctx.beginPath();
+  ctx.moveTo(chX, chY - chR * 0.7);
+  ctx.lineTo(chX + chR * 0.4, chY + chR * 0.1);
+  ctx.lineTo(chX - chR * 0.2, chY + chR * 0.1);
+  ctx.closePath();
+  ctx.fill();
+
+  // Feet — peeking out below body
+  ctx.fillStyle = '#b0a090';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.28, cy + r * 0.92, r * 0.16, r * 0.08, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.28, cy + r * 0.92, r * 0.16, r * 0.08, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  // Toe pads
+  ctx.fillStyle = '#e0b8b8';
+  for (const px of [-1, 1]) {
+    for (let t = -1; t <= 1; t++) {
+      ctx.beginPath();
+      ctx.arc(cx + px * (r * 0.28 + t * r * 0.06), cy + r * 0.95, r * 0.022, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore(); // end tilt
+}
+
 function drawTitleScreen(dt) {
   titleAnim += dt;
   const s = canvasScale;
@@ -2469,137 +2704,157 @@ function drawTitleScreen(dt) {
     if (offScreen) titleMice.splice(i, 1);
   }
 
-  // ---- Ambient warm glow — drifting, centered on title ----
-  const titleY = h * 0.18;
+  // ---- Ambient blue glow ----
+  const titleY = h * 0.13;
 
-  // Large warm halo behind title
-  const titleGlow = ctx.createRadialGradient(w / 2, titleY, 0, w / 2, titleY, w * 0.45);
-  const glowPulse = 0.08 + Math.sin(t * 0.4) * 0.03;
-  titleGlow.addColorStop(0, `rgba(245,214,138,${glowPulse * 1.5})`);
-  titleGlow.addColorStop(0.3, `rgba(232,168,64,${glowPulse})`);
-  titleGlow.addColorStop(0.6, `rgba(200,120,40,${glowPulse * 0.4})`);
+  // Soft blue-tinted radial glow
+  const titleGlow = ctx.createRadialGradient(w / 2, h * 0.3, 0, w / 2, h * 0.3, w * 0.5);
+  titleGlow.addColorStop(0, 'rgba(100,160,220,0.10)');
+  titleGlow.addColorStop(0.5, 'rgba(60,120,180,0.05)');
   titleGlow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = titleGlow;
   ctx.fillRect(0, 0, w, h);
 
-  // Drifting secondary glow
-  const glow2x = w * 0.5 + Math.cos(t * 0.25) * w * 0.15;
-  const glow2y = h * 0.4 + Math.sin(t * 0.35) * h * 0.08;
-  const g2 = ctx.createRadialGradient(glow2x, glow2y, 0, glow2x, glow2y, w * 0.35);
-  g2.addColorStop(0, 'rgba(232,168,64,0.06)');
-  g2.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g2;
-  ctx.fillRect(0, 0, w, h);
-
-  // Deep vignette
+  // Vignette — dark edges
   const vig = ctx.createRadialGradient(w / 2, h * 0.35, w * 0.08, w / 2, h * 0.35, w * 0.75);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
   vig.addColorStop(1, 'rgba(0,0,0,0.5)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
 
-  // ---- Title text — large with strong glow ----
-  const titleFont = Math.floor(42 * s);
-  const titleText = 'MOUSETRIX';
+  // Wooden title banner
+  const bannerW = w * 0.85;
+  const bannerH = 60 * s;
+  const bannerX = (w - bannerW) / 2;
+  const bannerY = titleY - bannerH * 0.6;
+  const br = 12 * s;
+  // Wood plank
+  const woodGrad = ctx.createLinearGradient(bannerX, bannerY, bannerX, bannerY + bannerH);
+  woodGrad.addColorStop(0, '#8b5a2a');
+  woodGrad.addColorStop(0.3, '#6b3a1a');
+  woodGrad.addColorStop(0.7, '#6b3a1a');
+  woodGrad.addColorStop(1, '#5a2a10');
+  ctx.fillStyle = woodGrad;
+  ctx.beginPath();
+  ctx.moveTo(bannerX + br, bannerY);
+  ctx.lineTo(bannerX + bannerW - br, bannerY);
+  ctx.quadraticCurveTo(bannerX + bannerW, bannerY, bannerX + bannerW, bannerY + br);
+  ctx.lineTo(bannerX + bannerW, bannerY + bannerH - br);
+  ctx.quadraticCurveTo(bannerX + bannerW, bannerY + bannerH, bannerX + bannerW - br, bannerY + bannerH);
+  ctx.lineTo(bannerX + br, bannerY + bannerH);
+  ctx.quadraticCurveTo(bannerX, bannerY + bannerH, bannerX, bannerY + bannerH - br);
+  ctx.lineTo(bannerX, bannerY + br);
+  ctx.quadraticCurveTo(bannerX, bannerY, bannerX + br, bannerY);
+  ctx.closePath();
+  ctx.fill();
+  // Wood grain lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const gy = bannerY + bannerH * (0.2 + i * 0.2);
+    ctx.beginPath();
+    ctx.moveTo(bannerX + 10 * s, gy + Math.sin(i) * 2 * s);
+    ctx.bezierCurveTo(bannerX + bannerW * 0.3, gy - 2 * s, bannerX + bannerW * 0.7, gy + 2 * s, bannerX + bannerW - 10 * s, gy - Math.sin(i) * 2 * s);
+    ctx.stroke();
+  }
+  // Banner border
+  ctx.strokeStyle = '#4a2a10';
+  ctx.lineWidth = 2.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(bannerX + br, bannerY);
+  ctx.lineTo(bannerX + bannerW - br, bannerY);
+  ctx.quadraticCurveTo(bannerX + bannerW, bannerY, bannerX + bannerW, bannerY + br);
+  ctx.lineTo(bannerX + bannerW, bannerY + bannerH - br);
+  ctx.quadraticCurveTo(bannerX + bannerW, bannerY + bannerH, bannerX + bannerW - br, bannerY + bannerH);
+  ctx.lineTo(bannerX + br, bannerY + bannerH);
+  ctx.quadraticCurveTo(bannerX, bannerY + bannerH, bannerX, bannerY + bannerH - br);
+  ctx.lineTo(bannerX, bannerY + br);
+  ctx.quadraticCurveTo(bannerX, bannerY, bannerX + br, bannerY);
+  ctx.closePath();
+  ctx.stroke();
+  // Light edge highlight
+  ctx.strokeStyle = 'rgba(255,220,160,0.15)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-  // Multi-layer glow behind title
+  // Title text
+  const titleFont = Math.floor(38 * s);
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
-  // Outer glow
-  ctx.shadowColor = 'rgba(245,214,138,0.8)';
-  ctx.shadowBlur = 40 * s;
-  ctx.fillStyle = 'rgba(232,168,64,0.3)';
-  ctx.fillText(titleText, w / 2, titleY);
-  // Inner glow
-  ctx.shadowColor = 'rgba(255,230,180,0.6)';
-  ctx.shadowBlur = 15 * s;
-  ctx.fillStyle = COLORS.text;
-  ctx.fillText(titleText, w / 2, titleY);
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 6 * s;
+  ctx.fillStyle = '#f5d68a';
+  ctx.fillText('MOUSETRIX', w / 2, titleY + 8 * s);
+  ctx.shadowBlur = 0;
   ctx.restore();
-
-  // Shimmer sweep
-  const shimmerPos = ((titleAnim / 2500) % 1);
-  const shimmerX = w * 0.2 + shimmerPos * w * 0.6;
-  ctx.save();
-  ctx.globalAlpha = 0.25;
-  const shimGrad = ctx.createLinearGradient(shimmerX - 40 * s, 0, shimmerX + 40 * s, 0);
-  shimGrad.addColorStop(0, 'rgba(255,255,255,0)');
-  shimGrad.addColorStop(0.5, 'rgba(255,255,255,1)');
-  shimGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = shimGrad;
-  ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText(titleText, w / 2, titleY);
-  ctx.restore();
-
-  // Solid title on top
-  ctx.fillStyle = COLORS.text;
-  ctx.font = `bold ${titleFont}px 'Segoe UI', sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText(titleText, w / 2, titleY);
 
   // Subtitle
   ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${13 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('🧀  a very cheezy puzzle  🧀', w / 2, titleY + 28 * s);
-
-  // ---- Mouse hole with warm light ----
-  const holeX = w / 2;
-  const holeY = h * 0.42;
-  const holeW = 28 * s;
-  const holeH = 34 * s;
-  const archR = holeW;
-
-  // Warm light spilling from hole
-  const lightGrad = ctx.createRadialGradient(holeX, holeY + holeH * 0.2, holeW * 0.3, holeX, holeY + holeH * 0.2, holeW * 2.5);
-  lightGrad.addColorStop(0, 'rgba(245,214,138,0.12)');
-  lightGrad.addColorStop(0.4, 'rgba(232,168,64,0.06)');
-  lightGrad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = lightGrad;
-  ctx.fillRect(holeX - holeW * 3, holeY - holeH * 2, holeW * 6, holeH * 4);
-
-  // Hole shape: square + arch
-  ctx.fillStyle = '#0a0705';
-  ctx.beginPath();
-  ctx.moveTo(holeX - holeW, holeY + holeH);
-  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
-  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
-  ctx.lineTo(holeX + holeW, holeY + holeH);
-  ctx.closePath();
-  ctx.fill();
-
-  // Inner warmth
-  const innerGrad = ctx.createRadialGradient(holeX, holeY, holeW * 0.15, holeX, holeY, holeW * 0.8);
-  innerGrad.addColorStop(0, 'rgba(232,168,64,0.15)');
-  innerGrad.addColorStop(1, 'rgba(10,7,5,0.9)');
-  ctx.fillStyle = innerGrad;
-  ctx.beginPath();
-  ctx.moveTo(holeX - holeW, holeY + holeH);
-  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
-  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
-  ctx.lineTo(holeX + holeW, holeY + holeH);
-  ctx.closePath();
-  ctx.fill();
-
-  // Hole border
-  ctx.strokeStyle = COLORS.frameLt;
-  ctx.lineWidth = 3 * s;
-  ctx.beginPath();
-  ctx.moveTo(holeX - holeW, holeY + holeH);
-  ctx.lineTo(holeX - holeW, holeY - holeH + archR);
-  ctx.arc(holeX, holeY - holeH + archR, archR, Math.PI, 0, false);
-  ctx.lineTo(holeX + holeW, holeY + holeH);
-  ctx.stroke();
-
-  // ---- CTA ----
-  const pulse = 0.7 + Math.sin(titleAnim / 500) * 0.3;
-  ctx.globalAlpha = pulse;
-  ctx.fillStyle = COLORS.text;
-  ctx.font = `${15 * s}px 'Segoe UI', sans-serif`;
+  ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('tap or press any key to start', w / 2, h * 0.56);
+  ctx.fillText('🧀  a very cheezy puzzle  🧀', w / 2, titleY + bannerH * 0.6 + 12 * s);
+
+  // Hero mouse holding cheese
+  drawHeroMouse(w / 2, h * 0.37, w * 0.35);
+
+  // ---- PLAY button ----
+  const playBtnW = 140 * s;
+  const playBtnH = 44 * s;
+  const playBtnX = w / 2 - playBtnW / 2;
+  const playBtnY = h * 0.51;
+  const pbr = playBtnH / 2; // pill shape
+  const playHover = hoverX > 0.2 && hoverX < 0.8 && hoverY > 0.48 && hoverY < 0.58;
+  const pulse = playHover ? 1.0 : 0.9 + Math.sin(titleAnim / 400) * 0.1;
+  // Button shadow
+  ctx.save();
+  ctx.shadowColor = playHover ? 'rgba(232,168,64,0.7)' : 'rgba(232,168,64,0.4)';
+  ctx.shadowBlur = (playHover ? 20 : 12) * s;
+  // Button gradient
+  const btnGrad = ctx.createLinearGradient(playBtnX, playBtnY, playBtnX, playBtnY + playBtnH);
+  if (playHover) {
+    btnGrad.addColorStop(0, '#f8d860');
+    btnGrad.addColorStop(0.5, '#f0b840');
+    btnGrad.addColorStop(1, '#d89828');
+  } else {
+    btnGrad.addColorStop(0, '#f0c040');
+    btnGrad.addColorStop(0.5, '#e8a830');
+    btnGrad.addColorStop(1, '#c88820');
+  }
+  ctx.fillStyle = btnGrad;
+  ctx.beginPath();
+  ctx.moveTo(playBtnX + pbr, playBtnY);
+  ctx.lineTo(playBtnX + playBtnW - pbr, playBtnY);
+  ctx.arc(playBtnX + playBtnW - pbr, playBtnY + pbr, pbr, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(playBtnX + pbr, playBtnY + playBtnH);
+  ctx.arc(playBtnX + pbr, playBtnY + pbr, pbr, Math.PI / 2, -Math.PI / 2);
+  ctx.closePath();
+  ctx.globalAlpha = pulse;
+  ctx.fill();
+  ctx.restore();
+  // Button border
+  ctx.strokeStyle = '#a06818';
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(playBtnX + pbr, playBtnY);
+  ctx.lineTo(playBtnX + playBtnW - pbr, playBtnY);
+  ctx.arc(playBtnX + playBtnW - pbr, playBtnY + pbr, pbr, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(playBtnX + pbr, playBtnY + playBtnH);
+  ctx.arc(playBtnX + pbr, playBtnY + pbr, pbr, Math.PI / 2, -Math.PI / 2);
+  ctx.closePath();
+  ctx.stroke();
+  // Button highlight
+  ctx.strokeStyle = 'rgba(255,240,200,0.3)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(playBtnX + pbr, playBtnY + pbr, pbr - 2 * s, -Math.PI / 2, Math.PI / 2, true);
+  ctx.stroke();
+  // Button text
   ctx.globalAlpha = 1;
+  ctx.fillStyle = '#3a2010';
+  ctx.font = `bold ${20 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('▶  PLAY', w / 2, playBtnY + playBtnH * 0.65);
 
   // ---- Stats area (cached to avoid parsing localStorage every frame) ----
   if (!cachedTitleScores) cachedTitleScores = loadHighScores();
@@ -2610,44 +2865,41 @@ function drawTitleScreen(dt) {
   ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
 
   if (scores.length > 0 || stats.sessions > 0) {
-    const statY = h * 0.78;
-    const gap = 60 * s; // tighter spacing between columns
     const cx = w / 2;
+    let statY = h * 0.62;
 
-    // High score
-    ctx.fillStyle = COLORS.accent;
-    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText(scores.length > 0 ? scores[0].toLocaleString() : '—', cx - gap, statY);
+    // High scores list (only if at least 1 score)
+    if (scores.length > 0) {
+      ctx.fillStyle = COLORS.text;
+      ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
+      ctx.fillText('🏆 High Scores', cx, statY);
+      statY += 16 * s;
+      ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
+      for (let i = 0; i < Math.min(5, scores.length); i++) {
+        ctx.fillStyle = i === 0 ? COLORS.accent : COLORS.textDim;
+        ctx.fillText(`${i + 1}. ${scores[i].toLocaleString()}`, cx, statY + i * 15 * s);
+      }
+      statY += Math.min(5, scores.length) * 15 * s + 10 * s;
+    }
+
+    // Cheese + games on one line
+    const gap = 55 * s;
     ctx.fillStyle = COLORS.textDim;
     ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText('🏆 Best', cx - gap, statY + 14 * s);
-
-    // Total cheese
-    ctx.fillStyle = COLORS.accent;
-    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText(stats.totalCheese.toLocaleString(), cx, statY);
-    ctx.fillStyle = COLORS.textDim;
-    ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText('🧀 Cheese', cx, statY + 14 * s);
-
-    // Sessions
-    ctx.fillStyle = COLORS.accent;
-    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText(stats.sessions.toLocaleString(), cx + gap, statY);
-    ctx.fillStyle = COLORS.textDim;
-    ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
-    ctx.fillText('🐭 Games', cx + gap, statY + 14 * s);
+    ctx.fillText(`🧀 ${stats.totalCheese.toLocaleString()} cheese`, cx - gap, statY);
+    ctx.fillText(`🐭 ${stats.sessions.toLocaleString()} games`, cx + gap, statY);
   }
 
   // About link
-  ctx.fillStyle = COLORS.accent;
+  const aboutHover = hoverY > 0.82 && hoverY < 0.94 && hoverX > 0.15 && hoverX < 0.85;
+  ctx.fillStyle = aboutHover ? '#fff' : COLORS.accent;
   ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText('About & How to Play', w / 2, h * 0.88);
   const tw = ctx.measureText('About & How to Play').width;
-  ctx.strokeStyle = COLORS.accent;
+  ctx.strokeStyle = aboutHover ? '#fff' : COLORS.accent;
   ctx.lineWidth = 1 * s;
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = aboutHover ? 0.9 : 0.5;
   ctx.beginPath();
   ctx.moveTo(w / 2 - tw / 2, h * 0.88 + 2 * s);
   ctx.lineTo(w / 2 + tw / 2, h * 0.88 + 2 * s);
@@ -2657,7 +2909,7 @@ function drawTitleScreen(dt) {
 
 function drawPauseOverlay() {
   const s = canvasScale;
-  ctx.fillStyle = 'rgba(26,18,11,0.8)';
+  ctx.fillStyle = 'rgba(20,61,94,0.8)';
   ctx.fillRect(0, 0, canvasW, canvasH);
   ctx.fillStyle = COLORS.text;
   ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
@@ -2668,9 +2920,84 @@ function drawPauseOverlay() {
   ctx.fillText('tap or press P to resume', canvasW / 2, canvasH * 0.5);
 }
 
+function drawExitConfirm() {
+  const s = canvasScale;
+  const cx = canvasW / 2;
+  ctx.fillStyle = 'rgba(20,61,94,0.85)';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `bold ${24 * s}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('🚪 Exit Game?', cx, canvasH * 0.28);
+
+  ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`Score: ${game.score}`, cx, canvasH * 0.37);
+  ctx.fillStyle = COLORS.accent;
+  ctx.fillText(`🧀 ${game.cheeseHoard} collected`, cx, canvasH * 0.42);
+  ctx.fillStyle = COLORS.textDim;
+  ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`Level ${game.level + 1} • ${game.lines} lines`, cx, canvasH * 0.47);
+
+  // Buttons
+  const btnW = 100 * s;
+  const btnH = 36 * s;
+  const gap = 20 * s;
+  const btnY = canvasH * 0.58;
+  const r = 8 * s;
+
+  // Hit test for hover
+  const quitX = cx - gap / 2 - btnW;
+  const resX = cx + gap / 2;
+  const quitHover = hoverCX >= quitX && hoverCX <= quitX + btnW && hoverCY >= btnY && hoverCY <= btnY + btnH;
+  const resHover = hoverCX >= resX && hoverCX <= resX + btnW && hoverCY >= btnY && hoverCY <= btnY + btnH;
+
+  // Quit button
+  ctx.fillStyle = quitHover ? 'rgba(224,80,80,0.4)' : 'rgba(224,80,80,0.2)';
+  ctx.strokeStyle = quitHover ? '#ff9090' : COLORS.danger;
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(quitX + r, btnY);
+  ctx.lineTo(quitX + btnW - r, btnY);
+  ctx.quadraticCurveTo(quitX + btnW, btnY, quitX + btnW, btnY + r);
+  ctx.lineTo(quitX + btnW, btnY + btnH - r);
+  ctx.quadraticCurveTo(quitX + btnW, btnY + btnH, quitX + btnW - r, btnY + btnH);
+  ctx.lineTo(quitX + r, btnY + btnH);
+  ctx.quadraticCurveTo(quitX, btnY + btnH, quitX, btnY + btnH - r);
+  ctx.lineTo(quitX, btnY + r);
+  ctx.quadraticCurveTo(quitX, btnY, quitX + r, btnY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = quitHover ? '#ff9090' : COLORS.danger;
+  ctx.font = `bold ${13 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('Quit', quitX + btnW / 2, btnY + btnH * 0.63);
+
+  // Resume button
+  ctx.fillStyle = resHover ? 'rgba(123,198,126,0.3)' : 'rgba(123,198,126,0.15)';
+  ctx.strokeStyle = resHover ? '#a0e8a0' : COLORS.accent;
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(resX + r, btnY);
+  ctx.lineTo(resX + btnW - r, btnY);
+  ctx.quadraticCurveTo(resX + btnW, btnY, resX + btnW, btnY + r);
+  ctx.lineTo(resX + btnW, btnY + btnH - r);
+  ctx.quadraticCurveTo(resX + btnW, btnY + btnH, resX + btnW - r, btnY + btnH);
+  ctx.lineTo(resX + r, btnY + btnH);
+  ctx.quadraticCurveTo(resX, btnY + btnH, resX, btnY + btnH - r);
+  ctx.lineTo(resX, btnY + r);
+  ctx.quadraticCurveTo(resX, btnY, resX + r, btnY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = resHover ? '#a0e8a0' : COLORS.accent;
+  ctx.font = `bold ${13 * s}px 'Segoe UI', sans-serif`;
+  ctx.fillText('Resume', resX + btnW / 2, btnY + btnH * 0.63);
+}
+
 function drawGameOver() {
   const s = canvasScale;
-  ctx.fillStyle = 'rgba(26,18,11,0.85)';
+  ctx.fillStyle = 'rgba(20,61,94,0.85)';
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   ctx.fillStyle = COLORS.text;
@@ -2872,13 +3199,13 @@ function drawAboutScreen(dt) {
   const fadeH = 20 * s;
   const topFade = ctx.createLinearGradient(0, clipTop, 0, clipTop + fadeH);
   topFade.addColorStop(0, COLORS.bg);
-  topFade.addColorStop(1, 'rgba(26,18,11,0)');
+  topFade.addColorStop(1, 'rgba(20,61,94,0)');
   ctx.fillStyle = topFade;
   ctx.fillRect(0, clipTop, w, fadeH);
 
   const btmY = h - clipBottom;
   const btmFade = ctx.createLinearGradient(0, btmY - fadeH, 0, btmY);
-  btmFade.addColorStop(0, 'rgba(26,18,11,0)');
+  btmFade.addColorStop(0, 'rgba(20,61,94,0)');
   btmFade.addColorStop(1, COLORS.bg);
   ctx.fillStyle = btmFade;
   ctx.fillRect(0, btmY - fadeH, w, fadeH);
@@ -2888,8 +3215,9 @@ function drawAboutScreen(dt) {
   const btnH = 32 * s;
   const btnX = w / 2 - btnW / 2;
   const btnY = h - clipBottom + 2 * s;
+  const closeHover = hoverY > 0.90 && hoverX > 0.25 && hoverX < 0.75;
   // Button background
-  ctx.fillStyle = 'rgba(168,144,112,0.2)';
+  ctx.fillStyle = closeHover ? 'rgba(168,144,112,0.35)' : 'rgba(168,144,112,0.2)';
   ctx.beginPath();
   const btnR = 8 * s;
   ctx.moveTo(btnX + btnR, btnY);
@@ -2904,11 +3232,11 @@ function drawAboutScreen(dt) {
   ctx.closePath();
   ctx.fill();
   // Button border
-  ctx.strokeStyle = COLORS.accent;
+  ctx.strokeStyle = closeHover ? COLORS.text : COLORS.accent;
   ctx.lineWidth = 1.5 * s;
   ctx.stroke();
   // Button text
-  ctx.fillStyle = COLORS.accent;
+  ctx.fillStyle = closeHover ? COLORS.text : COLORS.accent;
   ctx.font = `bold ${12 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText('✕  Close', w / 2, btnY + btnH * 0.65);
@@ -3211,7 +3539,7 @@ function catTryBat(cat, catCol, catRow, dt) {
 
 function update(dt) {
   if (!game || screen !== 'game') return;
-  if (game.state === 'paused' || game.state === 'gameover') return;
+  if (game.state === 'paused' || game.state === 'gameover' || game.state === 'exit_confirm') return;
 
   // Cheese effects always tick (even during clearing/scurry)
   for (let i = game.cheeseEffects.length - 1; i >= 0; i--) {
@@ -3766,6 +4094,7 @@ function draw(dt) {
   drawHUD();
 
   if (game.state === 'paused') drawPauseOverlay();
+  if (game.state === 'exit_confirm') drawExitConfirm();
   if (game.state === 'gameover') drawGameOver();
   drawExitButton();
   drawVolumeButton(dt);
@@ -3784,10 +4113,11 @@ function drawExitButton() {
   if (!game || screen !== 'game') return;
   const s = canvasScale;
   const btn = getExitButtonRect();
+  const isHover = hoverCX >= btn.x && hoverCX <= btn.x + btn.w && hoverCY >= btn.y && hoverCY <= btn.y + btn.h;
   ctx.save();
-  ctx.globalAlpha = 0.6;
+  ctx.globalAlpha = isHover ? 0.9 : 0.6;
   // Button bg
-  ctx.fillStyle = 'rgba(168,144,112,0.15)';
+  ctx.fillStyle = isHover ? 'rgba(168,144,112,0.3)' : 'rgba(168,144,112,0.15)';
   ctx.beginPath();
   const r = 6 * s;
   ctx.moveTo(btn.x + r, btn.y);
@@ -3829,18 +4159,55 @@ function drawExitButton() {
 
 function handleExitClick(clientX, clientY) {
   if (!game || screen !== 'game') return false;
+  if (game.state === 'gameover') return false;
   const canvasRect = canvas.getBoundingClientRect();
   const x = (clientX - canvasRect.left) * (canvasW / canvasRect.width);
   const y = (clientY - canvasRect.top) * (canvasH / canvasRect.height);
   const btn = getExitButtonRect();
   if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-    game.state = 'paused';
-    stopMusic();
-    screen = 'title';
-    titleMice = [];
-    titleMouseTimer = 0;
-    if (musicEnabled && audioReady) startTitleMusic();
+    if (game.state === 'exit_confirm') {
+      // Already showing confirm — treat as dismiss (resume)
+      game.state = 'playing';
+      if (musicEnabled) startMusic();
+    } else {
+      // Show exit confirmation
+      game.prevState = game.state;
+      game.state = 'exit_confirm';
+      stopMusic();
+    }
     return true;
+  }
+  // Handle quit/resume buttons when exit_confirm is showing
+  if (game.state === 'exit_confirm') {
+    const s = canvasScale;
+    const cx = canvasW / 2;
+    const btnW = 100 * s;
+    const btnH = 36 * s;
+    const gap = 20 * s;
+    const btnY = canvasH * 0.58;
+    // Quit button (left)
+    const quitX = cx - gap / 2 - btnW;
+    if (x >= quitX && x <= quitX + btnW && y >= btnY && y <= btnY + btnH) {
+      // End game — save score and return to title
+      saveHighScore(game.score);
+      game.state = 'gameover';
+      game.scurry = null;
+      screen = 'title';
+      titleMice = [];
+      titleMouseTimer = 0;
+      cachedTitleScores = null;
+      cachedTitleStats = null;
+      if (musicEnabled && audioReady) startTitleMusic();
+      return true;
+    }
+    // Resume button (right)
+    const resX = cx + gap / 2;
+    if (x >= resX && x <= resX + btnW && y >= btnY && y <= btnY + btnH) {
+      game.state = 'playing';
+      if (musicEnabled) startMusic();
+      return true;
+    }
+    return true; // consume click even if missed buttons
   }
   return false;
 }
@@ -3870,10 +4237,11 @@ function drawVolumeButton(dt) {
   const s = canvasScale;
   const btn = getVolumeButtonRect();
   const allMuted = !sfxEnabled && !musicEnabled;
+  const isHover = hoverCX >= btn.x && hoverCX <= btn.x + btn.w && hoverCY >= btn.y && hoverCY <= btn.y + btn.h;
 
   // Button background
-  ctx.fillStyle = 'rgba(13,9,6,0.6)';
-  ctx.strokeStyle = COLORS.frameLt;
+  ctx.fillStyle = isHover ? 'rgba(13,9,6,0.8)' : 'rgba(13,9,6,0.6)';
+  ctx.strokeStyle = isHover ? COLORS.accent : COLORS.frameLt;
   ctx.lineWidth = 1.5 * s;
   const r = 6 * s;
   ctx.beginPath();
@@ -3910,7 +4278,7 @@ function drawVolumeButton(dt) {
     const flyY = rects.sfx.y - 4 * s;
     const flyW = rects.sfx.w + 8 * s;
     const flyH = (rects.music.y + rects.music.h) - rects.sfx.y + 8 * s;
-    ctx.fillStyle = 'rgba(26,18,11,0.9)';
+    ctx.fillStyle = 'rgba(20,61,94,0.9)';
     ctx.strokeStyle = COLORS.frameLt;
     ctx.lineWidth = 1.5 * s;
     ctx.beginPath();
@@ -3994,15 +4362,34 @@ function handleVolumeClick(clientX, clientY) {
       volumeFlyoutTimer = 3000;
       return true;
     }
+    // Tap main button while flyout open — close flyout
+    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+      volumeFlyoutOpen = false;
+      return true;
+    }
     // Click outside flyout closes it
     volumeFlyoutOpen = false;
     return false;
   }
 
-  // Check main button
+  // Check main button — one-press mute/unmute + open flyout
   if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+    const allMuted = !sfxEnabled && !musicEnabled;
+    if (allMuted) {
+      // Unmute both
+      sfxEnabled = true;
+      musicEnabled = true;
+      if (screen === 'title') startTitleMusic();
+      else if (game && game.state === 'playing') startMusic();
+    } else {
+      // Mute both
+      sfxEnabled = false;
+      musicEnabled = false;
+      stopMusic();
+      stopTitleMusic();
+    }
     volumeFlyoutOpen = true;
-    volumeFlyoutTimer = 4000; // auto-close after 4s
+    volumeFlyoutTimer = 3000;
     return true;
   }
   return false;
@@ -4038,9 +4425,16 @@ canvas.addEventListener('click', e => {
   if (screen === 'title') {
     const rect = canvas.getBoundingClientRect();
     const relY = (e.clientY - rect.top) / rect.height;
+    const relX = (e.clientX - rect.left) / rect.width;
     if (relY > 0.82 && relY < 0.94) {
       screen = 'about';
       aboutScrollY = 0;
+      return;
+    }
+    // PLAY button hit area (centered, around h*0.51 to h*0.51+btnH)
+    if (relY > 0.48 && relY < 0.58 && relX > 0.2 && relX < 0.8) {
+      startGame();
+      return;
     }
   }
 });
@@ -4051,6 +4445,42 @@ canvas.addEventListener('wheel', e => {
     if (aboutScrollY < 0) aboutScrollY = 0;
   }
 }, { passive: false });
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  hoverX = (e.clientX - rect.left) / rect.width;
+  hoverY = (e.clientY - rect.top) / rect.height;
+  hoverCX = (e.clientX - rect.left) * (canvasW / rect.width);
+  hoverCY = (e.clientY - rect.top) * (canvasH / rect.height);
+  // Pointer cursor on clickable elements
+  const volBtn = getVolumeButtonRect();
+  const onVol = hoverCX >= volBtn.x && hoverCX <= volBtn.x + volBtn.w && hoverCY >= volBtn.y && hoverCY <= volBtn.y + volBtn.h;
+  if (screen === 'title') {
+    const onPlay = hoverX > 0.2 && hoverX < 0.8 && hoverY > 0.48 && hoverY < 0.58;
+    const onAbout = hoverY > 0.82 && hoverY < 0.94 && hoverX > 0.15 && hoverX < 0.85;
+    canvas.style.cursor = (onPlay || onAbout || onVol) ? 'pointer' : 'default';
+  } else if (screen === 'about') {
+    const onClose = hoverY > 0.90 && hoverX > 0.25 && hoverX < 0.75;
+    canvas.style.cursor = (onClose || onVol) ? 'pointer' : 'default';
+  } else if (screen === 'game' && game) {
+    const exitBtn = getExitButtonRect();
+    const onExit = hoverCX >= exitBtn.x && hoverCX <= exitBtn.x + exitBtn.w && hoverCY >= exitBtn.y && hoverCY <= exitBtn.y + exitBtn.h;
+    let onConfirmBtn = false;
+    if (game.state === 'exit_confirm') {
+      const s = canvasScale;
+      const btnW = 100 * s, btnH = 36 * s, gap = 20 * s;
+      const btnCY = canvasH * 0.58;
+      const cx = canvasW / 2;
+      const quitX = cx - gap / 2 - btnW;
+      const resX = cx + gap / 2;
+      onConfirmBtn = (hoverCY >= btnCY && hoverCY <= btnCY + btnH &&
+        ((hoverCX >= quitX && hoverCX <= quitX + btnW) || (hoverCX >= resX && hoverCX <= resX + btnW)));
+    }
+    canvas.style.cursor = (onVol || onExit || onConfirmBtn) ? 'pointer' : 'default';
+  } else {
+    canvas.style.cursor = 'default';
+  }
+});
+canvas.addEventListener('mouseleave', () => { hoverX = -1; hoverY = -1; hoverCX = -1; hoverCY = -1; canvas.style.cursor = 'default'; });
 resizeCanvas();
 // Eagerly create AudioContext (may start suspended due to browser autoplay policy)
 initAudio();
