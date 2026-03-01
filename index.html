@@ -770,6 +770,7 @@ function nextPiece() {
   // Check game over
   if (!isValid(game.current.type, game.current.rot, game.current.row, game.current.col)) {
     game.state = 'gameover';
+    game.gameOverTime = Date.now();
     game.scurry = null;
     sfxGameOver();
     stopMusic();
@@ -1340,7 +1341,7 @@ document.addEventListener('keydown', e => {
       else if (game.state === 'exit_confirm') { game.state = 'playing'; if (musicEnabled) startMusic(); }
     }
   }
-  if (game && game.state === 'gameover' && e.key === 'Enter') {
+  if (game && game.state === 'gameover' && e.key === 'Enter' && canDismissGameOver()) {
     startGame();
   }
 });
@@ -1382,7 +1383,7 @@ canvas.addEventListener('touchstart', e => {
     }
     requestFullscreen(); startGame(); return;
   }
-  if (game && game.state === 'gameover') { requestFullscreen(); startGame(); return; }
+  if (game && game.state === 'gameover' && canDismissGameOver()) { requestFullscreen(); startGame(); return; }
   if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
   if (game && game.state === 'exit_confirm') return; // handled by handleExitClick
   touchStartX = touch.clientX;
@@ -3025,12 +3026,14 @@ function drawGameOver() {
     ctx.fillText(`${i + 1}. ${scores[i]}${isNew ? ' ← NEW' : ''}`, canvasW / 2, canvasH * 0.59 + i * 18 * s);
   }
 
-  const pulse = 0.6 + Math.sin(Date.now() / 500) * 0.4;
-  ctx.globalAlpha = pulse;
-  ctx.fillStyle = COLORS.text;
-  ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
-  ctx.fillText('tap or Enter to play again', canvasW / 2, canvasH * 0.85);
-  ctx.globalAlpha = 1;
+  if (canDismissGameOver()) {
+    const pulse = 0.6 + Math.sin(Date.now() / 500) * 0.4;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('tap or Enter to play again', canvasW / 2, canvasH * 0.85);
+    ctx.globalAlpha = 1;
+  }
 }
 
 let aboutScrollY = 0;
@@ -3278,6 +3281,10 @@ function requestFullscreen() {
     }
   } catch (e) { /* ignore */ }
   setTimeout(resizeCanvas, 200);
+}
+
+function canDismissGameOver() {
+  return game && game.state === 'gameover' && game.gameOverTime && (Date.now() - game.gameOverTime > 1200);
 }
 
 function startGame() {
@@ -4436,6 +4443,10 @@ canvas.addEventListener('click', e => {
       startGame();
       return;
     }
+  }
+  if (game && game.state === 'gameover' && canDismissGameOver()) {
+    startGame();
+    return;
   }
 });
 canvas.addEventListener('wheel', e => {
