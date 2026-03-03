@@ -1344,6 +1344,7 @@ const keys = {};
 let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
 let touchMoved = false;
 let touchId = null;
+let touchOnButton = false;
 
 // Keyboard
 document.addEventListener('keydown', e => {
@@ -1447,10 +1448,12 @@ canvas.addEventListener('touchstart', e => {
   if (btnAction) {
     touchBtnActive = btnAction;
     touchBtnRepeatTimer = 0;
+    touchOnButton = true;
     executeTouchAction(btnAction);
     touchId = touch.identifier;
     return;
   }
+  touchOnButton = false;
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
   touchStartTime = Date.now();
@@ -1473,6 +1476,7 @@ canvas.addEventListener('touchmove', e => {
     return;
   }
   if (!game || game.state !== 'playing' || game.scurry) return;
+  if (touchOnButton) return; // don't process swipes when touch started on a button
   const touch = Array.from(e.touches).find(t => t.identifier === touchId);
   if (!touch) return;
   const dx = touch.clientX - touchStartX;
@@ -1502,7 +1506,9 @@ canvas.addEventListener('touchmove', e => {
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
   // Release touch button
+  const wasOnButton = touchOnButton;
   if (touchBtnActive) { touchBtnActive = null; touchBtnRepeatTimer = 0; }
+  touchOnButton = false;
   // About screen: handle close button tap or scroll
   if (screen === 'about') {
     const touch = e.changedTouches[0];
@@ -1522,9 +1528,11 @@ canvas.addEventListener('touchend', e => {
     return;
   }
   if (!game || game.state !== 'playing' || game.scurry) return;
+  // Skip legacy tap/swipe zones if touch was on a button
+  if (wasOnButton) { touchId = null; return; }
   const dt = Date.now() - touchStartTime;
-  if (!touchMoved && dt < 300) {
-    // Quick tap
+  if (!touchMoved && dt < 300 && !isTouchDevice) {
+    // Quick tap zones — only on non-touch (legacy fallback)
     const touch = e.changedTouches[0];
     const rect = canvas.getBoundingClientRect();
     const x = touch.clientX - rect.left;
@@ -1535,18 +1543,15 @@ canvas.addEventListener('touchend', e => {
     const relY = y / h;
 
     if (relY < 0.15) {
-      // Top zone — hold piece
       holdPiece();
     } else if (relY > 0.85) {
-      // Bottom zone — hard drop
       hardDrop();
     } else {
-      // Middle zone — rotate
       tryRotate(1);
     }
   }
-  // Check for upward swipe → rotate
-  if (touchMoved) {
+  // Check for upward swipe → rotate (keep for swipe-based play)
+  if (touchMoved && !isTouchDevice) {
     const touch = e.changedTouches[0];
     const dy = touch.clientY - touchStartY;
     if (dy < -canvasScale * CELL * 2 / (window.devicePixelRatio || 1)) {
