@@ -4,9 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Mousetrix</title>
+<meta name="theme-color" content="#143d5e">
+<meta name="description" content="A cozy mouse-themed block puzzle game. Collect cheese, dodge the cat, build color clusters!">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mousetrix">
+<link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231a120b'/%3E%3Ccircle cx='20' cy='16' r='11' fill='%23a08070'/%3E%3Ccircle cx='44' cy='16' r='11' fill='%23a08070'/%3E%3Ccircle cx='20' cy='16' r='7' fill='%23e8a8a0'/%3E%3Ccircle cx='44' cy='16' r='7' fill='%23e8a8a0'/%3E%3Ccircle cx='32' cy='32' r='18' fill='%23b09888'/%3E%3Cellipse cx='32' cy='35' rx='13' ry='11' fill='%23d4c0a8'/%3E%3Ccircle cx='25' cy='28' r='3.5' fill='%23221a14'/%3E%3Ccircle cx='39' cy='28' r='3.5' fill='%23221a14'/%3E%3Ccircle cx='26' cy='26.5' r='1.2' fill='white'/%3E%3Ccircle cx='40' cy='26.5' r='1.2' fill='white'/%3E%3Cellipse cx='32' cy='35' rx='4' ry='3' fill='%23e8a8a0'/%3E%3Cpath d='M50 48 L58 42 L52 48 L58 54 Z' fill='%23f0c040'/%3E%3Ccircle cx='54' cy='46' r='1.2' fill='%23c8a030'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%231a120b'/%3E%3Ccircle cx='56' cy='45' r='30' fill='%23a08070'/%3E%3Ccircle cx='124' cy='45' r='30' fill='%23a08070'/%3E%3Ccircle cx='56' cy='45' r='20' fill='%23e8a8a0'/%3E%3Ccircle cx='124' cy='45' r='20' fill='%23e8a8a0'/%3E%3Ccircle cx='90' cy='90' r='50' fill='%23b09888'/%3E%3Cellipse cx='90' cy='100' rx='36' ry='30' fill='%23d4c0a8'/%3E%3Ccircle cx='70' cy='80' r='10' fill='%23221a14'/%3E%3Ccircle cx='110' cy='80' r='10' fill='%23221a14'/%3E%3Ccircle cx='73' cy='76' r='3.5' fill='white'/%3E%3Ccircle cx='113' cy='76' r='3.5' fill='white'/%3E%3Cellipse cx='90' cy='100' rx='11' ry='8' fill='%23e8a8a0'/%3E%3Cpath d='M140 135 L163 118 L146 135 L163 152 Z' fill='%23f0c040'/%3E%3C/svg%3E">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
+:root { --sab: env(safe-area-inset-bottom, 0px); }
 html, body {
   width: 100%; height: 100%;
   overflow: hidden;
@@ -18,8 +26,6 @@ html, body {
 }
 canvas {
   display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
 }
 #gameCanvas {
   position: absolute;
@@ -352,15 +358,22 @@ function playNoise(duration, gain = 0.1, dest = sfxGain) {
   src.stop(t + duration);
 }
 
+// --- Haptic feedback ---
+function haptic(ms) {
+  try { navigator.vibrate && navigator.vibrate(ms); } catch(e) {}
+}
+
 // --- Sound effects ---
 function sfxMove() {
   playTone(800, 0.04, 'sine', 0.15);
   playTone(900, 0.04, 'sine', 0.12);
+  haptic(8);
 }
 
 function sfxRotate() {
   playTone(600, 0.06, 'sine', 0.2);
   playTone(900, 0.06, 'sine', 0.15);
+  haptic(12);
 }
 
 function sfxSoftDrop() {
@@ -371,11 +384,13 @@ function sfxHardDrop() {
   playNoise(0.08, 0.2);
   playTone(200, 0.12, 'sine', 0.25);
   setTimeout(() => playTone(500, 0.08, 'sine', 0.15), 60);
+  haptic(25);
 }
 
 function sfxLock() {
   playTone(300, 0.15, 'sine', 0.15);
   playTone(250, 0.2, 'triangle', 0.1);
+  haptic(15);
 }
 
 function sfxLineClear(count) {
@@ -473,6 +488,7 @@ function sfxCatSwipe() {
     playTone(150, 0.1, 'sawtooth', 0.15);
     playNoise(0.06, 0.15);
   }, 60);
+  haptic(40);
 }
 
 function sfxCatPounce() {
@@ -481,6 +497,7 @@ function sfxCatPounce() {
   playTone(60, 0.2, 'sawtooth', 0.15);
   playTone(80, 0.15, 'square', 0.1);
   setTimeout(() => playTone(50, 0.3, 'sawtooth', 0.08), 100);
+  haptic([30, 20, 50]);
 }
 
 function sfxCatGrowl() {
@@ -497,6 +514,7 @@ function sfxClusterClear(size, cascade) {
       playTone(base + i * 80, 0.1, 'sine', 0.18);
     }, i * 50);
   }
+  haptic(30 + cascade * 15);
   if (cascade > 0) {
     setTimeout(() => {
       playTone(base + 400, 0.15, 'sine', 0.2);
@@ -507,6 +525,7 @@ function sfxClusterClear(size, cascade) {
 
 // --- Background music ---
 let musicInterval = null;
+let musicNextTime = 0;
 const MELODY_COZY = [
   392, 440, 494, 523, 494, 440, 392, 330,
   349, 392, 440, 494, 440, 392, 349, 330,
@@ -519,24 +538,29 @@ function startMusic() {
   if (!audioReady || !musicEnabled) return;
   stopMusic();
   melodyIndex = 0;
-  const bpm = 100 + (game ? game.level * 5 : 0);
-  const interval = 60000 / bpm / 2;
+  musicNextTime = audioCtx.currentTime;
+  // Lookahead scheduler — schedule notes ahead, check frequently
   musicInterval = setInterval(() => {
     if (!musicEnabled || !audioReady) { stopMusic(); return; }
-    const freq = MELODY_COZY[melodyIndex % MELODY_COZY.length];
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, t);
-    g.gain.setValueAtTime(0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-    osc.connect(g);
-    g.connect(musicGain);
-    osc.start(t);
-    osc.stop(t + 0.35);
-    melodyIndex++;
-  }, interval);
+    const bpm = 100 + (game ? game.level * 5 : 0);
+    const noteDur = 60 / bpm / 2;
+    const lookAhead = 0.2; // schedule 200ms ahead
+    while (musicNextTime < audioCtx.currentTime + lookAhead) {
+      const freq = MELODY_COZY[melodyIndex % MELODY_COZY.length];
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, musicNextTime);
+      g.gain.setValueAtTime(0.08, musicNextTime);
+      g.gain.exponentialRampToValueAtTime(0.001, musicNextTime + 0.3);
+      osc.connect(g);
+      g.connect(musicGain);
+      osc.start(musicNextTime);
+      osc.stop(musicNextTime + 0.35);
+      melodyIndex++;
+      musicNextTime += noteDur;
+    }
+  }, 80);
 }
 
 function stopMusic() {
@@ -709,6 +733,9 @@ function newGame() {
     // Level-up banner
     levelBanner: 0,         // timer for level-up banner display
     levelBannerNum: 0,      // which level to show
+    // Screen shake
+    shakeTimer: 0,
+    shakeIntensity: 0,
   };
   fillBag();
   game.next = spawnPiece();
@@ -778,6 +805,7 @@ function nextPiece() {
     game.scurry = null;
     sfxGameOver();
     stopMusic();
+    releaseWakeLock();
     saveHighScore(game.score);
   }
 }
@@ -843,6 +871,12 @@ function tryRotate(dir) { // dir: 1=CW, -1=CCW
   return false;
 }
 
+function triggerShake(intensity) {
+  if (!game) return;
+  game.shakeTimer = 300;
+  game.shakeIntensity = Math.max(game.shakeIntensity, intensity);
+}
+
 function hardDrop() {
   const p = game.current;
   let dropped = 0;
@@ -853,6 +887,7 @@ function hardDrop() {
   }
   game.score += dropped * 2;
   sfxHardDrop();
+  triggerShake(4);
   lockPiece();
 }
 
@@ -1218,6 +1253,7 @@ function checkClusters() {
     }
   }
   // Score feedback
+  triggerShake(3 + game.cascadeCount * 2);
   const avgRow = allCells.reduce((s, c) => s + c.row, 0) / allCells.length;
   const avgCol = allCells.reduce((s, c) => s + c.col, 0) / allCells.length;
   const label = game.cascadeCount > 0
@@ -1355,9 +1391,9 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (game && screen === 'game') {
-      if (game.state === 'playing') { game.state = 'paused'; stopMusic(); }
-      else if (game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); }
-      else if (game.state === 'exit_confirm') { game.state = 'playing'; if (musicEnabled) startMusic(); }
+      if (game.state === 'playing') { game.state = 'paused'; stopMusic(); releaseWakeLock(); }
+      else if (game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); requestWakeLock(); }
+      else if (game.state === 'exit_confirm') { game.state = 'playing'; if (musicEnabled) startMusic(); requestWakeLock(); }
     }
   }
   if (game && game.state === 'gameover' && e.key === 'Enter' && canDismissGameOver()) {
@@ -1392,10 +1428,11 @@ canvas.addEventListener('touchstart', e => {
     return;
   }
   if (screen === 'title') {
-    // Check if tapped on "About" link (bottom 15% of screen)
+    // Check if tapped on "About" link
     const rect = canvas.getBoundingClientRect();
     const relY = (touch.clientY - rect.top) / rect.height;
-    if (relY > 0.82 && relY < 0.94) {
+    const relX = (touch.clientX - rect.left) / rect.width;
+    if (relY > aboutLinkRect.top && relY < aboutLinkRect.bottom && relX > aboutLinkRect.left && relX < aboutLinkRect.right) {
       screen = 'about';
       aboutScrollY = 0;
       return;
@@ -1403,8 +1440,17 @@ canvas.addEventListener('touchstart', e => {
     requestFullscreen(); startGame(); return;
   }
   if (game && game.state === 'gameover' && canDismissGameOver()) { requestFullscreen(); startGame(); return; }
-  if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); return; }
+  if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); requestWakeLock(); return; }
   if (game && game.state === 'exit_confirm') return; // handled by handleExitClick
+  // On-screen button hit test
+  const btnAction = hitTestTouchButtons(touch.clientX, touch.clientY);
+  if (btnAction) {
+    touchBtnActive = btnAction;
+    touchBtnRepeatTimer = 0;
+    executeTouchAction(btnAction);
+    touchId = touch.identifier;
+    return;
+  }
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
   touchStartTime = Date.now();
@@ -1431,7 +1477,8 @@ canvas.addEventListener('touchmove', e => {
   if (!touch) return;
   const dx = touch.clientX - touchStartX;
   const dy = touch.clientY - touchStartY;
-  const cellPx = canvasScale * CELL;
+  const dpr = window.devicePixelRatio || 1;
+  const cellPx = canvasScale * CELL / dpr;
 
   // Horizontal swipe → move piece
   if (Math.abs(dx) > cellPx * 0.8 && Math.abs(dx) > Math.abs(dy)) {
@@ -1454,6 +1501,8 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
+  // Release touch button
+  if (touchBtnActive) { touchBtnActive = null; touchBtnRepeatTimer = 0; }
   // About screen: handle close button tap or scroll
   if (screen === 'about') {
     const touch = e.changedTouches[0];
@@ -1500,7 +1549,7 @@ canvas.addEventListener('touchend', e => {
   if (touchMoved) {
     const touch = e.changedTouches[0];
     const dy = touch.clientY - touchStartY;
-    if (dy < -canvasScale * CELL * 2) {
+    if (dy < -canvasScale * CELL * 2 / (window.devicePixelRatio || 1)) {
       tryRotate(1);
     }
   }
@@ -1513,25 +1562,31 @@ canvas.addEventListener('touchend', e => {
 const ctx = canvas.getContext('2d');
 let canvasW = 0, canvasH = 0, canvasScale = 1;
 let playX = 0, playY = 0; // top-left of playfield in canvas coords
+let safeAreaBottom = 0; // safe area inset in canvas pixels
 
 function resizeCanvas() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  // Read safe area insets (CSS env values → px)
+  const safeEl = document.documentElement;
+  const safeBottom = parseFloat(getComputedStyle(safeEl).getPropertyValue('--sab')) || 0;
+  safeAreaBottom = safeBottom * dpr;
   // Board + HUD top + preview strip below
   const totalW = COLS * CELL + CELL * 2;
   const totalH = ROWS * CELL + CELL * 8; // board + top HUD + bottom preview area
   const scale = Math.min(vw / totalW, vh / totalH, 2.5);
-  canvasScale = scale;
-  canvasW = Math.floor(vw);
-  canvasH = Math.floor(vh);
+  canvasScale = scale * dpr;
+  canvasW = Math.floor(vw * dpr);
+  canvasH = Math.floor(vh * dpr);
   canvas.width = canvasW;
   canvas.height = canvasH;
-  canvas.style.width = canvasW + 'px';
-  canvas.style.height = canvasH + 'px';
+  canvas.style.width = vw + 'px';
+  canvas.style.height = vh + 'px';
 
-  const pfW = COLS * CELL * scale;
+  const pfW = COLS * CELL * canvasScale;
   playX = Math.floor((canvasW - pfW) / 2);
-  playY = Math.floor(CELL * 1.8 * scale);
+  playY = Math.floor(CELL * 1.8 * canvasScale);
 }
 
 function drawCell(col, row, color, alpha = 1) {
@@ -2430,11 +2485,105 @@ function drawHUD() {
     ctx.fillRect(playX, playY, pw, ROWS * CELL * s);
   }
 
-  // Touch hints (below previews)
-  ctx.fillStyle = COLORS.textDim;
-  ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('← swipe → | tap: rotate | ↓ drop', playX + pw / 2, previewY + previewSize * 2.8);
+  // Touch hints (below previews) — only show when no touch buttons
+  if (!isTouchDevice) {
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('← → move | ↑ rotate | Z reverse | Space drop | C hold', playX + pw / 2, previewY + previewSize * 2.8);
+  }
+}
+
+// ============================================================
+//  ON-SCREEN TOUCH CONTROLS
+// ============================================================
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+let touchBtnActive = null; // which button is currently pressed
+let touchBtnRepeatTimer = 0;
+
+function getTouchButtonLayout() {
+  const s = canvasScale;
+  const dpr = window.devicePixelRatio || 1;
+  const btnSize = 44 * s;
+  const gap = 8 * s;
+  const bottomY = canvasH - btnSize - 12 * s - safeAreaBottom;
+  const leftCluster = playX - btnSize * 0.3;
+  const rightCluster = playX + COLS * CELL * s + btnSize * 0.3;
+
+  return {
+    left:    { x: leftCluster - btnSize - gap, y: bottomY, w: btnSize, h: btnSize, label: '◀', action: 'left' },
+    right:   { x: leftCluster, y: bottomY, w: btnSize, h: btnSize, label: '▶', action: 'right' },
+    rotateCW:  { x: rightCluster, y: bottomY, w: btnSize, h: btnSize, label: '↻', action: 'rotateCW' },
+    rotateCCW: { x: rightCluster + btnSize + gap, y: bottomY, w: btnSize, h: btnSize, label: '↺', action: 'rotateCCW' },
+    drop:    { x: canvasW / 2 - btnSize * 1.2, y: bottomY, w: btnSize * 2.4, h: btnSize * 0.7, label: '▼ DROP', action: 'drop' },
+    hold:    { x: canvasW / 2 - btnSize * 0.6, y: bottomY - btnSize * 0.7 - gap, w: btnSize * 1.2, h: btnSize * 0.6, label: 'HOLD', action: 'hold' },
+  };
+}
+
+function drawTouchButtons() {
+  if (!isTouchDevice || !game || screen !== 'game') return;
+  if (game.state !== 'playing' || game.scurry) return;
+  const s = canvasScale;
+  const btns = getTouchButtonLayout();
+
+  for (const [key, btn] of Object.entries(btns)) {
+    const isActive = touchBtnActive === btn.action;
+    const r = 8 * s;
+    ctx.save();
+    ctx.globalAlpha = isActive ? 0.55 : 0.3;
+    ctx.fillStyle = isActive ? 'rgba(245,214,138,0.3)' : 'rgba(168,144,112,0.2)';
+    ctx.strokeStyle = isActive ? COLORS.accent : 'rgba(168,144,112,0.5)';
+    ctx.lineWidth = 1.5 * s;
+    // Rounded rect
+    ctx.beginPath();
+    ctx.moveTo(btn.x + r, btn.y);
+    ctx.lineTo(btn.x + btn.w - r, btn.y);
+    ctx.arcTo(btn.x + btn.w, btn.y, btn.x + btn.w, btn.y + r, r);
+    ctx.lineTo(btn.x + btn.w, btn.y + btn.h - r);
+    ctx.arcTo(btn.x + btn.w, btn.y + btn.h, btn.x + btn.w - r, btn.y + btn.h, r);
+    ctx.lineTo(btn.x + r, btn.y + btn.h);
+    ctx.arcTo(btn.x, btn.y + btn.h, btn.x, btn.y + btn.h - r, r);
+    ctx.lineTo(btn.x, btn.y + r);
+    ctx.arcTo(btn.x, btn.y, btn.x + r, btn.y, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = isActive ? COLORS.text : 'rgba(245,214,138,0.7)';
+    const fontSize = btn.action === 'drop' || btn.action === 'hold' ? 10 * s : 16 * s;
+    ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+}
+
+function hitTestTouchButtons(clientX, clientY) {
+  if (!isTouchDevice || !game || game.state !== 'playing' || game.scurry) return null;
+  const canvasRect = canvas.getBoundingClientRect();
+  const x = (clientX - canvasRect.left) * (canvasW / canvasRect.width);
+  const y = (clientY - canvasRect.top) * (canvasH / canvasRect.height);
+  const btns = getTouchButtonLayout();
+  for (const [key, btn] of Object.entries(btns)) {
+    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+      return btn.action;
+    }
+  }
+  return null;
+}
+
+function executeTouchAction(action) {
+  if (!game || game.state !== 'playing' || game.scurry) return;
+  switch (action) {
+    case 'left': tryMove(0, -1); break;
+    case 'right': tryMove(0, 1); break;
+    case 'rotateCW': tryRotate(1); break;
+    case 'rotateCCW': tryRotate(-1); break;
+    case 'drop': hardDrop(); break;
+    case 'hold': holdPiece(); break;
+  }
 }
 
 function getHighestOccupiedRow() {
@@ -2451,6 +2600,8 @@ let screen = 'title'; // 'title' | 'about' | 'game'
 let cachedTitleScores = null;
 let cachedTitleStats = null;
 let titleAnim = 0;
+// About link hit rect (relative 0-1 coords, set during drawTitleScreen)
+let aboutLinkRect = { left: 0.3, right: 0.7, top: 0.84, bottom: 0.92 };
 
 function drawHeroMouse(cx, cy, size) {
   const r = size * 0.42; // body radius — bigger
@@ -2827,8 +2978,9 @@ function drawTitleScreen(dt) {
   ctx.textAlign = 'center';
   ctx.fillText('🧀  a very cheezy puzzle  🧀', w / 2, titleY + bannerH * 0.6 + 12 * s);
 
-  // Hero mouse holding cheese
-  drawHeroMouse(w / 2, h * 0.37, w * 0.35);
+  // Hero mouse holding cheese — cap size to avoid overlap with title on wide screens
+  const heroMaxSize = Math.min(w * 0.35, h * 0.28, 280 * s);
+  drawHeroMouse(w / 2, h * 0.37, heroMaxSize);
 
   // ---- PLAY button ----
   const playBtnW = 140 * s;
@@ -2923,12 +3075,18 @@ function drawTitleScreen(dt) {
   }
 
   // About link
-  const aboutHover = hoverY > 0.82 && hoverY < 0.94 && hoverX > 0.15 && hoverX < 0.85;
-  ctx.fillStyle = aboutHover ? '#fff' : COLORS.accent;
+  ctx.fillStyle = COLORS.accent;
   ctx.font = `${11 * s}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('How to Play', w / 2, h * 0.88);
   const tw = ctx.measureText('How to Play').width;
+  const linkLeft = (w / 2 - tw / 2 - 10 * s) / w;
+  const linkRight = (w / 2 + tw / 2 + 10 * s) / w;
+  const linkTop = 0.88 - 14 * s / h;
+  const linkBottom = 0.88 + 8 * s / h;
+  aboutLinkRect = { left: linkLeft, right: linkRight, top: linkTop, bottom: linkBottom };
+  const aboutHover = hoverY > linkTop && hoverY < linkBottom && hoverX > linkLeft && hoverX < linkRight;
+  ctx.fillStyle = aboutHover ? '#fff' : COLORS.accent;
+  ctx.fillText('How to Play', w / 2, h * 0.88);
   ctx.strokeStyle = aboutHover ? '#fff' : COLORS.accent;
   ctx.lineWidth = 1 * s;
   ctx.globalAlpha = aboutHover ? 0.9 : 0.5;
@@ -3302,12 +3460,23 @@ function canDismissGameOver() {
   return game && game.state === 'gameover' && game.gameOverTime && (Date.now() - game.gameOverTime > 1200);
 }
 
+let wakeLock = null;
+async function requestWakeLock() {
+  try {
+    if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e) {}
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+
 function startGame() {
   initAudio();
   stopTitleMusic();
   newGame();
   screen = 'game';
   if (musicEnabled) startMusic();
+  requestWakeLock();
 }
 
 // ============================================================
@@ -3409,6 +3578,7 @@ function updateCatPounce(dt, cat) {
   if (progress >= 0.95 && !cat.pounceImpact) {
     cat.pounceImpact = true;
     game.screenFlash = 200;
+    triggerShake(8);
     sfxCatPounce();
     // Shake effect — bat anything nearby with wider range
     if (game.current && game.state === 'playing' && !game.scurry) {
@@ -3579,6 +3749,10 @@ function update(dt) {
   if (game.hoardBump > 0) game.hoardBump = Math.max(0, game.hoardBump - dt);
   if (game.screenFlash > 0) game.screenFlash = Math.max(0, game.screenFlash - dt);
   if (game.levelBanner > 0) game.levelBanner = Math.max(0, game.levelBanner - dt);
+  if (game.shakeTimer > 0) {
+    game.shakeTimer = Math.max(0, game.shakeTimer - dt);
+    if (game.shakeTimer <= 0) game.shakeIntensity = 0;
+  }
   // Cat idle timer ticks even during clearing (real-time schedule)
   if (game.cat.phase === 'idle') game.cat.timer += dt;
 
@@ -3635,6 +3809,17 @@ function update(dt) {
     if (game.dasActive && game.dasTimer >= DAS_REPEAT) {
       tryMove(0, game.dasDir);
       game.dasTimer = 0;
+    }
+  }
+
+  // Touch button auto-repeat (left/right only)
+  if (touchBtnActive === 'left' || touchBtnActive === 'right') {
+    touchBtnRepeatTimer += dt;
+    if (touchBtnRepeatTimer >= DAS_INITIAL) {
+      const repeatInterval = DAS_REPEAT * 1.5;
+      if ((touchBtnRepeatTimer - DAS_INITIAL) % repeatInterval < dt) {
+        executeTouchAction(touchBtnActive);
+      }
     }
   }
 
@@ -4100,6 +4285,24 @@ function drawCatLurk(cat, s, pw) {
 function draw(dt) {
   ctx.clearRect(0, 0, canvasW, canvasH);
 
+  // Landscape warning overlay (touch devices only)
+  const dpr = window.devicePixelRatio || 1;
+  if (window.innerWidth > window.innerHeight && 'ontouchstart' in window) {
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, canvasW, canvasH);
+    const s = canvasScale;
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `bold ${20 * s}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('📱', canvasW / 2, canvasH * 0.35);
+    ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('Rotate to portrait', canvasW / 2, canvasH * 0.52);
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = `${10 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText('Mousetrix plays best in portrait mode', canvasW / 2, canvasH * 0.62);
+    return;
+  }
+
   if (screen === 'title') {
     drawTitleScreen(dt);
     drawVolumeButton(dt);
@@ -4116,6 +4319,17 @@ function draw(dt) {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
+  // Screen shake offset
+  let shakeX = 0, shakeY = 0;
+  if (game.shakeTimer > 0) {
+    const decay = game.shakeTimer / 300;
+    const amp = game.shakeIntensity * canvasScale * decay;
+    shakeX = (Math.random() - 0.5) * amp * 2;
+    shakeY = (Math.random() - 0.5) * amp * 2;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+  }
+
   drawPlayfield();
   drawCat();
   drawCurrentPiece();
@@ -4124,9 +4338,12 @@ function draw(dt) {
   drawLevelBanner();
   drawDangerBorder();
 
+  if (game.shakeTimer > 0) ctx.restore();
+
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'exit_confirm') drawExitConfirm();
   if (game.state === 'gameover') drawGameOver();
+  drawTouchButtons();
   drawExitButton();
   drawVolumeButton(dt);
 }
@@ -4197,7 +4414,7 @@ function drawDangerBorder() {
 function getExitButtonRect() {
   const s = canvasScale;
   const size = 32 * s;
-  return { x: 8 * s, y: canvasH - size - 8 * s, w: size, h: size };
+  return { x: 8 * s, y: canvasH - size - 8 * s - safeAreaBottom, w: size, h: size };
 }
 
 function drawExitButton() {
@@ -4309,7 +4526,7 @@ function handleExitClick(clientX, clientY) {
 function getVolumeButtonRect() {
   const s = canvasScale;
   const size = 32 * s;
-  return { x: canvasW - size - 8 * s, y: canvasH - size - 8 * s, w: size, h: size };
+  return { x: canvasW - size - 8 * s, y: canvasH - size - 8 * s - safeAreaBottom, w: size, h: size };
 }
 
 function getVolumeFlyoutRects() {
@@ -4500,6 +4717,13 @@ function gameLoop(time) {
 window.addEventListener('resize', resizeCanvas);
 document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 100));
 document.addEventListener('webkitfullscreenchange', () => setTimeout(resizeCanvas, 100));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && game && game.state === 'playing' && screen === 'game') {
+    game.state = 'paused';
+    stopMusic();
+    releaseWakeLock();
+  }
+});
 canvas.addEventListener('click', e => {
   initAudio();
   if (handleVolumeClick(e.clientX, e.clientY)) return;
@@ -4517,7 +4741,7 @@ canvas.addEventListener('click', e => {
     const rect = canvas.getBoundingClientRect();
     const relY = (e.clientY - rect.top) / rect.height;
     const relX = (e.clientX - rect.left) / rect.width;
-    if (relY > 0.82 && relY < 0.94) {
+    if (relY > aboutLinkRect.top && relY < aboutLinkRect.bottom && relX > aboutLinkRect.left && relX < aboutLinkRect.right) {
       screen = 'about';
       aboutScrollY = 0;
       return;
@@ -4551,7 +4775,7 @@ canvas.addEventListener('mousemove', e => {
   const onVol = hoverCX >= volBtn.x && hoverCX <= volBtn.x + volBtn.w && hoverCY >= volBtn.y && hoverCY <= volBtn.y + volBtn.h;
   if (screen === 'title') {
     const onPlay = hoverX > 0.2 && hoverX < 0.8 && hoverY > 0.48 && hoverY < 0.58;
-    const onAbout = hoverY > 0.82 && hoverY < 0.94 && hoverX > 0.15 && hoverX < 0.85;
+    const onAbout = hoverY > aboutLinkRect.top && hoverY < aboutLinkRect.bottom && hoverX > aboutLinkRect.left && hoverX < aboutLinkRect.right;
     canvas.style.cursor = (onPlay || onAbout || onVol) ? 'pointer' : 'default';
   } else if (screen === 'about') {
     const onClose = hoverY > 0.90 && hoverX > 0.25 && hoverX < 0.75;
@@ -4590,6 +4814,9 @@ document.addEventListener('click', resumeAudioOnGesture, true);
 document.addEventListener('touchstart', resumeAudioOnGesture, true);
 document.addEventListener('keydown', resumeAudioOnGesture, true);
 requestAnimationFrame(gameLoop);
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 </script>
 </body>
