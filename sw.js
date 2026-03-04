@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mousetrix-v5';
+const CACHE_NAME = 'mousetrix-v6';
 const ASSETS = [
   './',
   './index.html',
