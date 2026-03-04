@@ -1344,7 +1344,6 @@ const keys = {};
 let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
 let touchMoved = false;
 let touchId = null;
-let touchOnButton = false;
 
 // Keyboard
 document.addEventListener('keydown', e => {
@@ -1443,17 +1442,6 @@ canvas.addEventListener('touchstart', e => {
   if (game && game.state === 'gameover' && canDismissGameOver()) { requestFullscreen(); startGame(); return; }
   if (game && game.state === 'paused') { game.state = 'playing'; if (musicEnabled) startMusic(); requestWakeLock(); return; }
   if (game && game.state === 'exit_confirm') return; // handled by handleExitClick
-  // On-screen button hit test
-  const btnAction = hitTestTouchButtons(touch.clientX, touch.clientY);
-  if (btnAction) {
-    touchBtnActive = btnAction;
-    touchBtnRepeatTimer = 0;
-    touchOnButton = true;
-    executeTouchAction(btnAction);
-    touchId = touch.identifier;
-    return;
-  }
-  touchOnButton = false;
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
   touchStartTime = Date.now();
@@ -1476,7 +1464,6 @@ canvas.addEventListener('touchmove', e => {
     return;
   }
   if (!game || game.state !== 'playing' || game.scurry) return;
-  if (touchOnButton) return; // don't process swipes when touch started on a button
   const touch = Array.from(e.touches).find(t => t.identifier === touchId);
   if (!touch) return;
   const dx = touch.clientX - touchStartX;
@@ -1505,10 +1492,6 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  // Release touch button
-  const wasOnButton = touchOnButton;
-  if (touchBtnActive) { touchBtnActive = null; touchBtnRepeatTimer = 0; }
-  touchOnButton = false;
   // About screen: handle close button tap or scroll
   if (screen === 'about') {
     const touch = e.changedTouches[0];
@@ -1528,11 +1511,9 @@ canvas.addEventListener('touchend', e => {
     return;
   }
   if (!game || game.state !== 'playing' || game.scurry) return;
-  // Skip legacy tap/swipe zones if touch was on a button
-  if (wasOnButton) { touchId = null; return; }
   const dt = Date.now() - touchStartTime;
-  if (!touchMoved && dt < 300 && !isTouchDevice) {
-    // Quick tap zones — only on non-touch (legacy fallback)
+  if (!touchMoved && dt < 300) {
+    // Quick tap
     const touch = e.changedTouches[0];
     const rect = canvas.getBoundingClientRect();
     const x = touch.clientX - rect.left;
@@ -1543,15 +1524,18 @@ canvas.addEventListener('touchend', e => {
     const relY = y / h;
 
     if (relY < 0.15) {
+      // Top zone — hold piece
       holdPiece();
     } else if (relY > 0.85) {
+      // Bottom zone — hard drop
       hardDrop();
     } else {
+      // Middle zone — rotate
       tryRotate(1);
     }
   }
-  // Check for upward swipe → rotate (keep for swipe-based play)
-  if (touchMoved && !isTouchDevice) {
+  // Check for upward swipe → rotate
+  if (touchMoved) {
     const touch = e.changedTouches[0];
     const dy = touch.clientY - touchStartY;
     if (dy < -canvasScale * CELL * 2 / (window.devicePixelRatio || 1)) {
@@ -2490,8 +2474,8 @@ function drawHUD() {
     ctx.fillRect(playX, playY, pw, ROWS * CELL * s);
   }
 
-  // Touch hints (below previews) — only show when no touch buttons
-  if (!isTouchDevice) {
+  // Touch hints (below previews)
+  {
     ctx.fillStyle = COLORS.textDim;
     ctx.font = `${7 * s}px 'Segoe UI', sans-serif`;
     ctx.textAlign = 'center';
@@ -2500,96 +2484,9 @@ function drawHUD() {
 }
 
 // ============================================================
-//  ON-SCREEN TOUCH CONTROLS
+//  ON-SCREEN TOUCH CONTROLS (reserved)
 // ============================================================
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-let touchBtnActive = null; // which button is currently pressed
-let touchBtnRepeatTimer = 0;
-
-function getTouchButtonLayout() {
-  const s = canvasScale;
-  const dpr = window.devicePixelRatio || 1;
-  const btnSize = 44 * s;
-  const gap = 8 * s;
-  const bottomY = canvasH - btnSize - 12 * s - safeAreaBottom;
-  const leftCluster = playX - btnSize * 0.3;
-  const rightCluster = playX + COLS * CELL * s + btnSize * 0.3;
-
-  return {
-    left:    { x: leftCluster - btnSize - gap, y: bottomY, w: btnSize, h: btnSize, label: '◀', action: 'left' },
-    right:   { x: leftCluster, y: bottomY, w: btnSize, h: btnSize, label: '▶', action: 'right' },
-    rotateCW:  { x: rightCluster, y: bottomY, w: btnSize, h: btnSize, label: '↻', action: 'rotateCW' },
-    rotateCCW: { x: rightCluster + btnSize + gap, y: bottomY, w: btnSize, h: btnSize, label: '↺', action: 'rotateCCW' },
-    drop:    { x: canvasW / 2 - btnSize * 1.2, y: bottomY, w: btnSize * 2.4, h: btnSize * 0.7, label: '▼ DROP', action: 'drop' },
-    hold:    { x: canvasW / 2 - btnSize * 0.6, y: bottomY - btnSize * 0.7 - gap, w: btnSize * 1.2, h: btnSize * 0.6, label: 'HOLD', action: 'hold' },
-  };
-}
-
-function drawTouchButtons() {
-  if (!isTouchDevice || !game || screen !== 'game') return;
-  if (game.state !== 'playing' || game.scurry) return;
-  const s = canvasScale;
-  const btns = getTouchButtonLayout();
-
-  for (const [key, btn] of Object.entries(btns)) {
-    const isActive = touchBtnActive === btn.action;
-    const r = 8 * s;
-    ctx.save();
-    ctx.globalAlpha = isActive ? 0.55 : 0.3;
-    ctx.fillStyle = isActive ? 'rgba(245,214,138,0.3)' : 'rgba(168,144,112,0.2)';
-    ctx.strokeStyle = isActive ? COLORS.accent : 'rgba(168,144,112,0.5)';
-    ctx.lineWidth = 1.5 * s;
-    // Rounded rect
-    ctx.beginPath();
-    ctx.moveTo(btn.x + r, btn.y);
-    ctx.lineTo(btn.x + btn.w - r, btn.y);
-    ctx.arcTo(btn.x + btn.w, btn.y, btn.x + btn.w, btn.y + r, r);
-    ctx.lineTo(btn.x + btn.w, btn.y + btn.h - r);
-    ctx.arcTo(btn.x + btn.w, btn.y + btn.h, btn.x + btn.w - r, btn.y + btn.h, r);
-    ctx.lineTo(btn.x + r, btn.y + btn.h);
-    ctx.arcTo(btn.x, btn.y + btn.h, btn.x, btn.y + btn.h - r, r);
-    ctx.lineTo(btn.x, btn.y + r);
-    ctx.arcTo(btn.x, btn.y, btn.x + r, btn.y, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    // Label
-    ctx.fillStyle = isActive ? COLORS.text : 'rgba(245,214,138,0.7)';
-    const fontSize = btn.action === 'drop' || btn.action === 'hold' ? 10 * s : 16 * s;
-    ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
-    ctx.textBaseline = 'alphabetic';
-    ctx.restore();
-  }
-}
-
-function hitTestTouchButtons(clientX, clientY) {
-  if (!isTouchDevice || !game || game.state !== 'playing' || game.scurry) return null;
-  const canvasRect = canvas.getBoundingClientRect();
-  const x = (clientX - canvasRect.left) * (canvasW / canvasRect.width);
-  const y = (clientY - canvasRect.top) * (canvasH / canvasRect.height);
-  const btns = getTouchButtonLayout();
-  for (const [key, btn] of Object.entries(btns)) {
-    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-      return btn.action;
-    }
-  }
-  return null;
-}
-
-function executeTouchAction(action) {
-  if (!game || game.state !== 'playing' || game.scurry) return;
-  switch (action) {
-    case 'left': tryMove(0, -1); break;
-    case 'right': tryMove(0, 1); break;
-    case 'rotateCW': tryRotate(1); break;
-    case 'rotateCCW': tryRotate(-1); break;
-    case 'drop': hardDrop(); break;
-    case 'hold': holdPiece(); break;
-  }
-}
 
 function getHighestOccupiedRow() {
   for (let r = 0; r < ROWS; r++) {
@@ -3817,17 +3714,6 @@ function update(dt) {
     }
   }
 
-  // Touch button auto-repeat (left/right only)
-  if (touchBtnActive === 'left' || touchBtnActive === 'right') {
-    touchBtnRepeatTimer += dt;
-    if (touchBtnRepeatTimer >= DAS_INITIAL) {
-      const repeatInterval = DAS_REPEAT * 1.5;
-      if ((touchBtnRepeatTimer - DAS_INITIAL) % repeatInterval < dt) {
-        executeTouchAction(touchBtnActive);
-      }
-    }
-  }
-
   // Gravity
   const gravityMs = GRAVITY_TABLE[Math.min(game.level, GRAVITY_TABLE.length - 1)];
   const effectiveGravity = game.softDrop ? Math.min(gravityMs, 50) : gravityMs;
@@ -4348,7 +4234,6 @@ function draw(dt) {
   if (game.state === 'paused') drawPauseOverlay();
   if (game.state === 'exit_confirm') drawExitConfirm();
   if (game.state === 'gameover') drawGameOver();
-  drawTouchButtons();
   drawExitButton();
   drawVolumeButton(dt);
 }
