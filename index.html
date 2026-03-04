@@ -68,9 +68,126 @@ const COLORS = {
   white:    '#f5f0e8',
 };
 
+// Immutable copy of level-0 defaults
+const BASE_COLORS = { ...COLORS };
+
 // ============================================================
 //  THEME SYSTEM
 // ============================================================
+
+// Each entry overrides COLORS + currentTheme fields for that level.
+// Levels beyond the array cycle back from the start.
+const LEVEL_PALETTES = [
+  // Lv 0 — Cozy Burrow (deep blue, warm gold)
+  {
+    name: 'Cozy Burrow',
+    bg: '#143d5e', gridBg: '#0c2a42', gridLine: 'rgba(140,180,220,0.08)',
+    frame: '#6b3a1a', frameLt: '#8b5a2a',
+    text: '#f5d68a', textDim: '#a0b8c8', accent: '#e8a840',
+    ghost: 'rgba(140,180,220,0.18)',
+  },
+  // Lv 1 — Moonlit Attic (purple-slate, silver)
+  {
+    name: 'Moonlit Attic',
+    bg: '#1e1e3a', gridBg: '#14142a', gridLine: 'rgba(160,150,200,0.08)',
+    frame: '#4a3a6a', frameLt: '#6a5a8a',
+    text: '#d0c8e8', textDim: '#9898c0', accent: '#b898e0',
+    ghost: 'rgba(160,150,200,0.18)',
+  },
+  // Lv 2 — Garden Shed (earthy green, amber)
+  {
+    name: 'Garden Shed',
+    bg: '#1a3428', gridBg: '#0e2418', gridLine: 'rgba(140,200,160,0.08)',
+    frame: '#4a6030', frameLt: '#6a8048',
+    text: '#d8e0a8', textDim: '#98b8a0', accent: '#b8d040',
+    ghost: 'rgba(140,200,160,0.18)',
+  },
+  // Lv 3 — Warm Kitchen (terracotta, cream)
+  {
+    name: 'Warm Kitchen',
+    bg: '#3a2018', gridBg: '#2a1410', gridLine: 'rgba(220,180,140,0.08)',
+    frame: '#8a4a2a', frameLt: '#a86a3a',
+    text: '#f0d8b0', textDim: '#c0a888', accent: '#e89050',
+    ghost: 'rgba(220,180,140,0.18)',
+  },
+  // Lv 4 — Cellar Depths (teal-dark, cyan)
+  {
+    name: 'Cellar Depths',
+    bg: '#0e2a30', gridBg: '#081e24', gridLine: 'rgba(100,200,200,0.08)',
+    frame: '#2a5a5a', frameLt: '#3a7a7a',
+    text: '#a0e8e0', textDim: '#78b8b8', accent: '#50d0c0',
+    ghost: 'rgba(100,200,200,0.18)',
+  },
+  // Lv 5 — Dusty Library (warm brown, gold leaf)
+  {
+    name: 'Dusty Library',
+    bg: '#2a2018', gridBg: '#1e1610', gridLine: 'rgba(200,180,140,0.08)',
+    frame: '#6a5030', frameLt: '#8a7048',
+    text: '#e8d8a8', textDim: '#b0a080', accent: '#d8a840',
+    ghost: 'rgba(200,180,140,0.18)',
+  },
+  // Lv 6 — Starlit Roof (dark navy, cool white)
+  {
+    name: 'Starlit Roof',
+    bg: '#0c1428', gridBg: '#080e1e', gridLine: 'rgba(140,160,220,0.08)',
+    frame: '#303860', frameLt: '#485880',
+    text: '#c8d0f0', textDim: '#8898c0', accent: '#7090e8',
+    ghost: 'rgba(140,160,220,0.18)',
+  },
+  // Lv 7 — Rose Parlor (deep magenta, pink)
+  {
+    name: 'Rose Parlor',
+    bg: '#301828', gridBg: '#20101e', gridLine: 'rgba(200,140,180,0.08)',
+    frame: '#6a3050', frameLt: '#8a4870',
+    text: '#f0c8d8', textDim: '#b898a8', accent: '#e070a0',
+    ghost: 'rgba(200,140,180,0.18)',
+  },
+  // Lv 8 — Sunlit Pantry (warm yellow, orange)
+  {
+    name: 'Sunlit Pantry',
+    bg: '#2e2810', gridBg: '#201c0a', gridLine: 'rgba(220,200,120,0.08)',
+    frame: '#7a6020', frameLt: '#9a8030',
+    text: '#f0e0a0', textDim: '#b8a870', accent: '#e8c030',
+    ghost: 'rgba(220,200,120,0.18)',
+  },
+  // Lv 9 — Frozen Pipe (ice blue, frosty)
+  {
+    name: 'Frozen Pipe',
+    bg: '#101828', gridBg: '#0a1020', gridLine: 'rgba(160,200,240,0.10)',
+    frame: '#304060', frameLt: '#486080',
+    text: '#c0d8f8', textDim: '#80a0c8', accent: '#60a8e8',
+    ghost: 'rgba(160,200,240,0.20)',
+  },
+];
+
+function applyLevelTheme(level) {
+  const palette = LEVEL_PALETTES[level % LEVEL_PALETTES.length];
+  // Update mutable COLORS object
+  COLORS.bg = palette.bg;
+  COLORS.frame = palette.frame;
+  COLORS.frameLt = palette.frameLt;
+  COLORS.gridBg = palette.gridBg;
+  COLORS.text = palette.text;
+  COLORS.textDim = palette.textDim;
+  COLORS.accent = palette.accent;
+  COLORS.ghost = palette.ghost;
+  // Update currentTheme for drawPlayfield
+  currentTheme.bg = palette.bg;
+  currentTheme.frameFill = palette.frame;
+  currentTheme.gridBg = palette.gridBg;
+  currentTheme.gridLine = palette.gridLine;
+  currentTheme.name = palette.name;
+}
+
+function resetBaseTheme() {
+  Object.assign(COLORS, BASE_COLORS);
+  currentTheme.bg = BASE_COLORS.bg;
+  currentTheme.frameFill = BASE_COLORS.frame;
+  currentTheme.gridBg = BASE_COLORS.gridBg;
+  currentTheme.gridLine = 'rgba(140,180,220,0.08)';
+  currentTheme.name = 'Cozy Burrow';
+}
+
 const THEMES = {
   cozy: {
     name: 'Cozy Burrow',
@@ -84,9 +201,6 @@ const THEMES = {
     music: null,
     rowClearFx: null,
   },
-  // Future themes added here:
-  // garden: { name: 'Garden', bg: '#1a2e1a', ... },
-  // kitchen: { name: 'Kitchen', bg: '#2b2420', ... },
 };
 let currentTheme = THEMES.cozy;
 
@@ -1137,6 +1251,7 @@ function checkLines() {
     game.level = Math.floor(game.lines / LINES_PER_LEVEL);
     if (game.level > levelBefore) {
       sfxLevelUp();
+      applyLevelTheme(game.level);
       game.levelBanner = 2000;
       game.levelBannerNum = game.level + 1;
     }
@@ -1248,6 +1363,7 @@ function checkClusters() {
     game.level = Math.floor(game.lines / LINES_PER_LEVEL);
     if (game.level > levelBefore) {
       sfxLevelUp();
+      applyLevelTheme(game.level);
       game.levelBanner = 2000;
       game.levelBannerNum = game.level + 1;
     }
@@ -2505,8 +2621,17 @@ let titleAnim = 0;
 // About link hit rect (relative 0-1 coords, set during drawTitleScreen)
 let aboutLinkRect = { left: 0.3, right: 0.7, top: 0.84, bottom: 0.92 };
 
-function drawHeroMouse(cx, cy, size) {
+function drawHeroMouse(cx, cy, size, anim) {
   const r = size * 0.42; // body radius — bigger
+  const t = anim || 0;
+
+  // Animation oscillators — irrational frequency ratios so they never sync
+  const eyeShift = Math.sin(t * 0.73) * r * 0.06;           // eyes look left/right
+  const earWigL = Math.sin(t * 1.87 + 0.4) * 0.08;          // left ear wiggle (radians)
+  const earWigR = Math.sin(t * 1.51 + 2.9) * 0.06;          // right ear wiggle
+  const tailSway = Math.sin(t * 0.97 + 1.7) * 0.15;         // tail sway amount
+  const whiskerTwitch = Math.sin(t * 2.33 + 4.1) * r * 0.03;// whisker ends shift
+  const breathe = Math.sin(t * 1.19 + 3.3) * r * 0.012;     // subtle body breathing
 
   // Shadow under mouse
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -2520,12 +2645,12 @@ function drawHeroMouse(cx, cy, size) {
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(cx + r * 0.35, cy + r * 0.8);
-  ctx.bezierCurveTo(cx + r * 1.0, cy + r * 0.3, cx + r * 0.5, cy - r * 0.2, cx + r * 0.9, cy - r * 0.4);
+  ctx.bezierCurveTo(cx + r * (1.0 + tailSway), cy + r * 0.3, cx + r * (0.5 - tailSway * 0.5), cy - r * 0.2, cx + r * (0.9 + tailSway * 0.8), cy - r * 0.4);
   ctx.stroke();
   // Tail tip curl
   ctx.lineWidth = size * 0.02;
   ctx.beginPath();
-  ctx.arc(cx + r * 0.9, cy - r * 0.48, r * 0.08, Math.PI * 0.5, Math.PI * 2);
+  ctx.arc(cx + r * (0.9 + tailSway * 0.8), cy - r * 0.48, r * 0.08, Math.PI * 0.5, Math.PI * 2);
   ctx.stroke();
 
   // Body — round and plump, slightly tilted
@@ -2536,7 +2661,7 @@ function drawHeroMouse(cx, cy, size) {
 
   ctx.fillStyle = '#b8a898';
   ctx.beginPath();
-  ctx.ellipse(cx, cy + r * 0.08, r * 0.92, r * 1.0, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + r * 0.08, r * 0.92, r * 1.0 + breathe, 0, 0, Math.PI * 2);
   ctx.fill();
   // Body highlight
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
@@ -2553,21 +2678,21 @@ function drawHeroMouse(cx, cy, size) {
   // Left ear (big, expressive)
   ctx.fillStyle = '#a89888';
   ctx.beginPath();
-  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.42, r * 0.52, -0.35, 0, Math.PI * 2);
+  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.42, r * 0.52, -0.35 + earWigL, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#e8a0a0';
   ctx.beginPath();
-  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.26, r * 0.36, -0.35, 0, Math.PI * 2);
+  ctx.ellipse(cx - r * 0.55, cy - r * 0.82, r * 0.26, r * 0.36, -0.35 + earWigL, 0, Math.PI * 2);
   ctx.fill();
 
   // Right ear (slightly perked up — mischievous)
   ctx.fillStyle = '#a89888';
   ctx.beginPath();
-  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.40, r * 0.55, 0.25, 0, Math.PI * 2);
+  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.40, r * 0.55, 0.25 + earWigR, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#e8a0a0';
   ctx.beginPath();
-  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.24, r * 0.38, 0.25, 0, Math.PI * 2);
+  ctx.ellipse(cx + r * 0.52, cy - r * 0.88, r * 0.24, r * 0.38, 0.25 + earWigR, 0, Math.PI * 2);
   ctx.fill();
 
   // Head — larger for expressiveness
@@ -2584,7 +2709,7 @@ function drawHeroMouse(cx, cy, size) {
   ctx.fill();
   ctx.fillStyle = '#1a1a1a';
   ctx.beginPath();
-  ctx.ellipse(cx - r * 0.20, cy - r * 0.37, r * 0.08, r * 0.09, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx - r * 0.20 + eyeShift, cy - r * 0.37, r * 0.08, r * 0.09, 0, 0, Math.PI * 2);
   ctx.fill();
   // Right eye (wider — scheming)
   ctx.fillStyle = '#f8f4f0';
@@ -2593,15 +2718,15 @@ function drawHeroMouse(cx, cy, size) {
   ctx.fill();
   ctx.fillStyle = '#1a1a1a';
   ctx.beginPath();
-  ctx.ellipse(cx + r * 0.23, cy - r * 0.39, r * 0.09, r * 0.10, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + r * 0.23 + eyeShift, cy - r * 0.39, r * 0.09, r * 0.10, 0, 0, Math.PI * 2);
   ctx.fill();
-  // Eye highlights (sparkle)
+  // Eye highlights (sparkle) — move with pupils
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.arc(cx - r * 0.17, cy - r * 0.41, r * 0.04, 0, Math.PI * 2);
+  ctx.arc(cx - r * 0.17 + eyeShift, cy - r * 0.41, r * 0.04, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(cx + r * 0.26, cy - r * 0.43, r * 0.045, 0, Math.PI * 2);
+  ctx.arc(cx + r * 0.26 + eyeShift, cy - r * 0.43, r * 0.045, 0, Math.PI * 2);
   ctx.fill();
   // Raised eyebrow on right side (mischievous!)
   ctx.strokeStyle = '#8a7a6a';
@@ -2641,17 +2766,17 @@ function drawHeroMouse(cx, cy, size) {
   ctx.lineWidth = size * 0.008;
   ctx.beginPath();
   ctx.moveTo(cx - r * 0.12, cy - r * 0.22);
-  ctx.lineTo(cx - r * 0.62, cy - r * 0.35);
+  ctx.lineTo(cx - r * 0.62, cy - r * 0.35 + whiskerTwitch);
   ctx.moveTo(cx - r * 0.13, cy - r * 0.17);
   ctx.lineTo(cx - r * 0.62, cy - r * 0.17);
   ctx.moveTo(cx - r * 0.12, cy - r * 0.12);
-  ctx.lineTo(cx - r * 0.58, cy - r * 0.02);
+  ctx.lineTo(cx - r * 0.58, cy - r * 0.02 - whiskerTwitch);
   ctx.moveTo(cx + r * 0.12, cy - r * 0.22);
-  ctx.lineTo(cx + r * 0.62, cy - r * 0.35);
+  ctx.lineTo(cx + r * 0.62, cy - r * 0.35 - whiskerTwitch);
   ctx.moveTo(cx + r * 0.13, cy - r * 0.17);
   ctx.lineTo(cx + r * 0.62, cy - r * 0.17);
   ctx.moveTo(cx + r * 0.12, cy - r * 0.12);
-  ctx.lineTo(cx + r * 0.58, cy - r * 0.02);
+  ctx.lineTo(cx + r * 0.58, cy - r * 0.02 + whiskerTwitch);
   ctx.stroke();
 
   // Arms/paws — reaching toward cheese
@@ -2880,9 +3005,44 @@ function drawTitleScreen(dt) {
   ctx.textAlign = 'center';
   ctx.fillText('🧀  a very cheezy puzzle  🧀', w / 2, titleY + bannerH * 0.6 + 12 * s);
 
-  // Hero mouse holding cheese — cap size to avoid overlap with title on wide screens
+  // Hero mouse emerging from mouse hole
   const heroMaxSize = Math.min(w * 0.35, h * 0.28, 280 * s);
-  drawHeroMouse(w / 2, h * 0.37, heroMaxSize);
+  const heroCx = w / 2;
+  const heroCy = h * 0.37;
+  const holeR = heroMaxSize * 0.48;
+
+  // Mouse hole — arch shape (drawn behind the mouse)
+  ctx.fillStyle = '#081828';
+  ctx.beginPath();
+  ctx.moveTo(heroCx - holeR, heroCy + holeR * 0.9);
+  ctx.lineTo(heroCx - holeR, heroCy - holeR * 0.2);
+  ctx.arc(heroCx, heroCy - holeR * 0.2, holeR, Math.PI, 0, false);
+  ctx.lineTo(heroCx + holeR, heroCy + holeR * 0.9);
+  ctx.closePath();
+  ctx.fill();
+  // Hole border (wood frame)
+  ctx.strokeStyle = COLORS.frameLt;
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(heroCx - holeR - 2 * s, heroCy + holeR * 0.9);
+  ctx.lineTo(heroCx - holeR - 2 * s, heroCy - holeR * 0.2);
+  ctx.arc(heroCx, heroCy - holeR * 0.2, holeR + 2 * s, Math.PI, 0, false);
+  ctx.lineTo(heroCx + holeR + 2 * s, heroCy + holeR * 0.9);
+  ctx.stroke();
+  // Inner shadow for depth
+  const holeShadow = ctx.createRadialGradient(heroCx, heroCy + holeR * 0.2, holeR * 0.2, heroCx, heroCy + holeR * 0.2, holeR * 1.1);
+  holeShadow.addColorStop(0, 'rgba(8,24,40,0.9)');
+  holeShadow.addColorStop(1, 'rgba(8,24,40,0)');
+  ctx.fillStyle = holeShadow;
+  ctx.beginPath();
+  ctx.moveTo(heroCx - holeR, heroCy + holeR * 0.9);
+  ctx.lineTo(heroCx - holeR, heroCy - holeR * 0.2);
+  ctx.arc(heroCx, heroCy - holeR * 0.2, holeR, Math.PI, 0, false);
+  ctx.lineTo(heroCx + holeR, heroCy + holeR * 0.9);
+  ctx.closePath();
+  ctx.fill();
+
+  drawHeroMouse(heroCx, heroCy, heroMaxSize, t);
 
   // ---- PLAY button ----
   const playBtnW = 140 * s;
@@ -2974,6 +3134,106 @@ function drawTitleScreen(dt) {
     ctx.font = `${9 * s}px 'Segoe UI', sans-serif`;
     ctx.fillText(`🧀 ${stats.totalCheese.toLocaleString()} cheese`, cx - gap, statY);
     ctx.fillText(`🐭 ${stats.sessions.toLocaleString()} games`, cx + gap, statY);
+  }
+
+  // ---- Lurking cat silhouette with glowing eyes ----
+  {
+    const catY = h * 0.94;
+    const catSize = Math.min(w * 0.18, 80 * s);
+    const catX = w * 0.12;
+    const eyePulse = 0.6 + Math.sin(t * 2.5) * 0.4;
+    const eyeTrackX = (hoverX - 0.12) * 0.03 * catSize;
+    const eyeTrackY = (hoverY - 0.94) * 0.02 * catSize;
+
+    ctx.save();
+    // Cat body — dark crouching shape
+    ctx.fillStyle = '#0a0810';
+    ctx.beginPath();
+    ctx.ellipse(catX, catY + catSize * 0.1, catSize * 0.6, catSize * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head
+    const headX = catX + catSize * 0.35;
+    const headY = catY - catSize * 0.12;
+    const headR = catSize * 0.22;
+    ctx.beginPath();
+    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ears
+    ctx.beginPath();
+    ctx.moveTo(headX - headR * 0.65, headY - headR * 0.5);
+    ctx.lineTo(headX - headR * 0.2, headY - headR * 1.5);
+    ctx.lineTo(headX + headR * 0.2, headY - headR * 0.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headX + headR * 0.15, headY - headR * 0.6);
+    ctx.lineTo(headX + headR * 0.55, headY - headR * 1.4);
+    ctx.lineTo(headX + headR * 0.75, headY - headR * 0.35);
+    ctx.fill();
+
+    // Tail curving up
+    ctx.strokeStyle = '#0a0810';
+    ctx.lineWidth = 4 * s;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(catX - catSize * 0.5, catY + catSize * 0.05);
+    ctx.quadraticCurveTo(catX - catSize * 0.75, catY - catSize * 0.5, catX - catSize * 0.55, catY - catSize * 0.4);
+    ctx.stroke();
+
+    // Eye glow (red, pulsing)
+    const eyeR = headR * 0.15;
+    const glowR = headR * 0.55;
+    const leyeX = headX - headR * 0.25 + eyeTrackX;
+    const leyeY = headY - headR * 0.05 + eyeTrackY;
+    const reyeX = headX + headR * 0.25 + eyeTrackX;
+    const reyeY = headY - headR * 0.05 + eyeTrackY;
+
+    // Outer glow
+    ctx.globalAlpha = 0.25 * eyePulse;
+    const lGlow = ctx.createRadialGradient(leyeX, leyeY, eyeR * 0.5, leyeX, leyeY, glowR);
+    lGlow.addColorStop(0, 'rgba(255,50,30,0.8)');
+    lGlow.addColorStop(1, 'rgba(255,30,10,0)');
+    ctx.fillStyle = lGlow;
+    ctx.fillRect(leyeX - glowR, leyeY - glowR, glowR * 2, glowR * 2);
+    const rGlow = ctx.createRadialGradient(reyeX, reyeY, eyeR * 0.5, reyeX, reyeY, glowR);
+    rGlow.addColorStop(0, 'rgba(255,50,30,0.8)');
+    rGlow.addColorStop(1, 'rgba(255,30,10,0)');
+    ctx.fillStyle = rGlow;
+    ctx.fillRect(reyeX - glowR, reyeY - glowR, glowR * 2, glowR * 2);
+
+    // Bright eye cores
+    ctx.globalAlpha = 0.85 * eyePulse;
+    ctx.fillStyle = '#ff3318';
+    ctx.beginPath();
+    ctx.ellipse(leyeX, leyeY, eyeR * 1.2, eyeR * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(reyeX, reyeY, eyeR * 1.2, eyeR * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Slit pupils
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(leyeX, leyeY, eyeR * 0.3, eyeR * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(reyeX, reyeY, eyeR * 0.3, eyeR * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Specular highlights
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(leyeX + eyeR * 0.3, leyeY - eyeR * 0.3, eyeR * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(reyeX + eyeR * 0.3, reyeY - eyeR * 0.3, eyeR * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // About link
@@ -3376,6 +3636,7 @@ function startGame() {
   initAudio();
   stopTitleMusic();
   newGame();
+  applyLevelTheme(0);
   screen = 'game';
   if (musicEnabled) startMusic();
   requestWakeLock();
@@ -4391,6 +4652,7 @@ function handleExitClick(clientX, clientY) {
       game.state = 'gameover';
       game.scurry = null;
       screen = 'title';
+      resetBaseTheme();
       titleMice = [];
       titleMouseTimer = 0;
       cachedTitleScores = null;
