@@ -5014,11 +5014,23 @@ window.addEventListener('resize', resizeCanvas);
 document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 100));
 document.addEventListener('webkitfullscreenchange', () => setTimeout(resizeCanvas, 100));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && game && game.state === 'playing' && screen === 'game') {
-    game.state = 'paused';
+  if (document.hidden) {
+    if (game && game.state === 'playing' && screen === 'game') {
+      game.state = 'paused';
+    }
     stopMusic();
+    stopTitleMusic();
     releaseWakeLock();
   }
+});
+
+window.addEventListener('blur', () => {
+  if (game && game.state === 'playing' && screen === 'game') {
+    game.state = 'paused';
+  }
+  stopMusic();
+  stopTitleMusic();
+  releaseWakeLock();
 });
 canvas.addEventListener('click', e => {
   initAudio();
